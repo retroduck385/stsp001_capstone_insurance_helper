@@ -13,5 +13,3 @@ To deactivate (also for mac): deactivate (or auto deactivate once closed)
 Step 2 Download requirements.txt
 
 pip install -r requirements.txt 
-
-//Running the main in the venv file: python main.py
