@@ -1,2 +1,3 @@
 anthropic
 dotenv
+google-genai
