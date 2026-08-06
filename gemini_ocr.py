@@ -10,14 +10,14 @@ load_dotenv()
 client = genai.Client()
 
 # Upload the image (Make sure "image_15bd30.jpg" matches your actual image name)
-sample_file = client.files.upload(file="b00eddce-cb0c-4399-a6a8-d7184b22b98a.jpeg")
+sample_file = client.files.upload(file="C:\\Users\\river\\Downloads\\ram.jpg")
 
 # Prompt the model using the new syntax
 response = client.models.generate_content(
     model='gemini-3.6-flash',
     contents=[
         sample_file, 
-        "Extract all the text from this image verbatim. Do not add any other commentary."
+        "Explain what the picture contains."
     ]
 )
 

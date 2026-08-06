@@ -1,0 +1,232 @@
+{
+  "claims": [
+    {
+      "injury": "Death Indemnity",
+      "amount": "70,000.00",
+      "currency": "PHP",
+      "evidence": "Death Certificate and evidence sufficient to establish the proper payee."
+    },
+    {
+      "injury": "Burial and Funeral Expenses",
+      "amount": "30,000.00",
+      "currency": "PHP",
+      "evidence": "Death Certificate and evidence sufficient to establish the proper payee."
+    },
+    {
+      "injury": "Hospital Rooms",
+      "amount": "500.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Laboratory examination fees, X-rays",
+      "amount": "2,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Surgical Expenses - Major Operation",
+      "amount": "7,500.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Surgical Expenses - Medium Operation",
+      "amount": "5,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Surgical Expenses - Minor Operation",
+      "amount": "1,500.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Anesthesiologist's Fees - Major Operation",
+      "amount": "2,500.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Anesthesiologist's Fees - Medium Operation",
+      "amount": "2,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Anesthesiologist's Fees - Minor Operation",
+      "amount": "500.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Operating Room - Major Operation",
+      "amount": "1,500.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Operating Room - Medium Operation",
+      "amount": "1,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Operating Room - Minor Operation",
+      "amount": "500.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Medical Expenses - Daily visits",
+      "amount": "400.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Drugs & Medicine",
+      "amount": "20,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Ambulance",
+      "amount": "1,500.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Permanent Disablement - Two Limbs",
+      "amount": "50,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Permanent Disablement - Both hands, or all fingers & both thumbs",
+      "amount": "50,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Permanent Disablement - Both Feet",
+      "amount": "50,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Permanent Disablement - One Hand and one foot",
+      "amount": "50,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Permanent Disablement - Sight of both eyes",
+      "amount": "50,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Permanent Disablement - Injuries resulting in being permanently bedridden",
+      "amount": "50,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Permanent Disablement - Any other injury causing permanent total disablement",
+      "amount": "50,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Permanent Disablement - Arm at or above elbow",
+      "amount": "20,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Permanent Disablement - Arm between elbow and wrist",
+      "amount": "15,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Permanent Disablement - Hand",
+      "amount": "15,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Permanent Disablement - Four fingers and thumb of one hand",
+      "amount": "15,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Permanent Disablement - Four Fingers",
+      "amount": "12,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Permanent Disablement - Leg at or above knee",
+      "amount": "20,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Permanent Disablement - Leg below knee",
+      "amount": "15,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Permanent Disablement - One foot",
+      "amount": "15,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Permanent Disablement - All Toes of one foot",
+      "amount": "10,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Permanent Disablement - Thumb",
+      "amount": "8,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Permanent Disablement - Index Finger",
+      "amount": "6,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Permanent Disablement - Sight of one Eye",
+      "amount": "20,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Permanent Disablement - Hearing – Both Ears",
+      "amount": "30,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "Permanent Disablement - Hearing – One Ear",
+      "amount": "15,000.00",
+      "currency": "PHP",
+      "evidence": "Medical report and evidence of medical or hospital expenses"
+    },
+    {
+      "injury": "No Fault Indemnity (Bodily Injury and/or Death)",
+      "amount": "15,000.00",
+      "currency": "PHP",
+      "evidence": "Police report of accident or any evidence sufficient to establish the accident; and Medical report and evidence of medical or hospital expenses; and/or Death Certificate and evidence sufficient to establish the proper payee."
+    }
+  ]
+}
