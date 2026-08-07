@@ -3,14 +3,17 @@ import json
 import pdfplumber
 from google import genai
 from dotenv import load_dotenv
+from mongo_rules_store import RuleStore
 
 load_dotenv()
 client = genai.Client()
+
 
 def read_pdf_text(pdf_path: str) -> str:
     with pdfplumber.open(pdf_path) as pdf:
         pages = [page.extract_text() or "" for page in pdf.pages]
     return "\n\n".join(pages)
+
 
 def extract_injury_payments(pdf_path: str) -> dict:
     text = read_pdf_text(pdf_path)
@@ -34,15 +37,15 @@ Schema:
 For each injury or loss item in the policy, return one object.
 If you are uncertain about a value, set it to null.
 Do not include prose, markdown, or code fences. do a line break after each value"""
-        ]
+        ],
     )
 
     return response.text
 
 
-def save_json_from_text(response_text: str, output_path: str) -> str:
+def parse_json_response(response_text: str) -> dict:
     try:
-        data = json.loads(response_text)
+        return json.loads(response_text)
     except json.JSONDecodeError as exc:
         raise ValueError(
             "response.text is not valid JSON. Clean the model output or ensure the prompt returns only JSON.",
@@ -50,15 +53,19 @@ def save_json_from_text(response_text: str, output_path: str) -> str:
             response_text,
         )
 
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
 
-    return output_path
+def store_rules_to_mongodb(response_text: str, connection_string: str | None = None) -> list[str]:
+    data = parse_json_response(response_text)
+    rules = data.get("claims", []) if isinstance(data, dict) else []
+    if not isinstance(rules, list):
+        raise ValueError("Expected a top-level 'claims' array in the Gemini JSON response")
+
+    store = RuleStore(connection_string=connection_string)
+    return store.insert_rules(rules)
 
 
 if __name__ == "__main__":
     pdf_file = r"C:\Users\river\Downloads\Car Insurance.pdf"
     response_text = extract_injury_payments(pdf_file)
-    output_file = os.path.join(os.path.dirname(__file__), "policies", "policy_output.json")
-    saved_path = save_json_from_text(response_text, output_file)
-    print(f"Saved extracted JSON to: {saved_path}")
+    inserted_ids = store_rules_to_mongodb(response_text, os.getenv("MONGODB_URI"))
+    print(f"Inserted rule documents with ids: {inserted_ids}")

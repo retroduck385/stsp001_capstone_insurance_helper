@@ -1,4 +1,4 @@
 anthropic
 dotenv
 google-genai
-pdfplumber
+pymongo
