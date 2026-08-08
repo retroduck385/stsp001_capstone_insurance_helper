@@ -27,16 +27,86 @@ Schema:
 {
   "claims": [
     {
-      "injury": string | null,
-      "amount": string | null,
-      "currency": string | null,
-      "evidence": string | null
+        "rule_id": "<unique_rule_id>",
+        "category": "string",
+        "description": "string",
+        "conditions": {
+            "loss_type": "string",
+            "requires_evidence": boolean,
+            "minimum_evidence": [
+                "string"
+            ]
+        },
+        "amount": {
+            "currency": "PHP",
+            "min": integer,
+            "max": integer
+        },
+        "source": "string",
+        "claim_period": {
+            "unit": "days" | "months" | "years",
+            "value": integer
+        }
     }
   ]
 }
-For each injury or loss item in the policy, return one object.
+For each injury or loss item in the policy, return one claim object that includes rule_id, category, description, conditions, amount, source, and claim_period.
 If you are uncertain about a value, set it to null.
-Do not include prose, markdown, or code fences. do a line break after each value"""
+Do not include prose, markdown, or code fences. do a line break after each value
+
+Category and loss type have the following heirarchy:
+
+Category
+│
+├── injury
+│   ├── fracture
+│   ├── burn
+│   ├── laceration
+│   └── disability
+|   |__ death
+│
+├── property
+│   ├── fire_damage
+│   ├── water_damage
+│   ├── structural_damage
+│   └── theft
+│
+├── vehicle
+│   ├── collision
+│   ├── theft
+│   ├── vandalism
+│   └── weather_damage
+│
+└── financial
+    ├── income_loss
+    ├── business_interruption
+    └── medical_expense
+
+An example of a valid JSON output is:
+{
+  "_id": "permanent_disablement_rule_5",
+  "category": "injury",
+  "loss_type": "disability",
+  "description": "Loss of Arm at or Above elbow",
+  "amount": {
+    "min": 20000,
+    "max": 20000,
+    "currency": "PHP"
+  },
+
+  "claim_period": {
+    "value": 60,
+    "unit": "days",
+  },
+
+  "evidence": [
+    "police_report",
+    "photos",
+    "repair_estimate"
+  ]
+}
+
+"""
         ],
     )
 
