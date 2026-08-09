@@ -1,3 +1,4 @@
 .env
 venv/
 test_id.jpeg
+node_modules/
