@@ -17,7 +17,7 @@ export default function App () {
         const loadClaims = async () => {
             try {
                 // Reach out to your Node.js server
-                const response = await fetch('http://localhost:5000/api/claims'); //
+                const response = await fetch('http://localhost:5001/api/claims'); //
                 if (!response.ok) throw new Error('Failed to fetch claims from server'); //
                 
                 const data = await response.json(); //
