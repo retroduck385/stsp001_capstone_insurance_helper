@@ -10,7 +10,7 @@ load_dotenv()
 client = genai.Client()
 
 # Upload the image (Make sure "image_15bd30.jpg" matches your actual image name)
-sample_file = client.files.upload(file="C:\\Users\\river\\Downloads\\ram.jpg")
+sample_file = client.files.upload(file="/Users/joshdenzelng/Documents/Github Files/stsp001_capstone_insurance_helper/test_id.jpeg")
 
 # Prompt the model using the new syntax
 response = client.models.generate_content(
