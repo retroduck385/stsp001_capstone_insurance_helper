@@ -11,18 +11,28 @@ app.use(express.json({limit:'10mb'}));
 app.get('/api/health',(req,res)=>res.json({ok:true,service:'InsureCopilot API'}));
 
 const claimSchema = new mongoose.Schema({
-  claimId:{type:String,required:true,unique:true},
+  id:{type:String,required:true,unique:true}, // matches your existing docs, e.g. "CLM-2026-8891"
   policyholder:String,
   email:String,
   driverName:String,
   vehicle:String,
   claimType:{type:String,enum:['Own Damage','Third-Party Property Damage','Third-Party Bodily Injury / Death']},
   status:String,
+  category:String,
   claimedAmount:Number,
   recommendedPayout:Number,
+  isFlagged:Boolean,
+  flagSummary:String,
+  docsCount:Number,
   documents:[mongoose.Schema.Types.Mixed],
-  ocrData:[mongoose.Schema.Types.Mixed]
-},{timestamps:true});
+  ocrData:[mongoose.Schema.Types.Mixed],
+  rules:[mongoose.Schema.Types.Mixed],
+  citation:String
+},{
+  timestamps:true,
+  id:false, // disable Mongoose's default `id` virtual so it doesn't collide with our real `id` field
+});
+
 const Claim=mongoose.model('Claim',claimSchema);
 
 app.get('/api/claims',async(req,res)=>{

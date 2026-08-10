@@ -1,84 +1,381 @@
 import { useState, useRef, useEffect } from 'react';
-import { claimRequirements } from './claimRequirements'; //
+import { claimRequirements } from './claimRequirements'
 
-export default function App () {
-    // 1. INITIAL DATABASE STATES (Empty & Waiting)
-    const [claimsDb, setClaimsDb] = useState({}); // Starts empty
-    const [isLoading, setIsLoading] = useState(true); // Wait for database
-    const [error, setError] = useState(null); //
+    function App() {
 
-    // 2. UI NAVIGATION STATES
-    const [currentScreen, setCurrentScreen] = useState('dashboard'); //
-    const [selectedClaimId, setSelectedClaimId] = useState(null); // Starts blank, dynamically filled below
-    const [activeTab, setActiveTab] = useState('All Open'); //
+      const [claimsDb, setClaimsDb] = useState({});
+      const [isLoading, setIsLoading] = useState(true);
+      const [error, setError] = useState(null);
 
-    // 3. THE NETWORK BRIDGE (Connects to Server.js)
-    useEffect(() => {
+      useEffect(() => {
         const loadClaims = async () => {
-            try {
-                // Reach out to your Node.js server
-                const response = await fetch('http://localhost:5000/api/claims'); //
-                if (!response.ok) throw new Error('Failed to fetch claims from server'); //
-                
-                const data = await response.json(); //
+          try {
+            const response = await fetch('http://localhost:5000/api/claims');
+            if (!response.ok) throw new Error('Failed to fetch claims from server');
+            
+            const data = await response.json();
 
-                // Convert the flat MongoDB array into your UI's expected object format
-                const formattedData = {}; //
-                data.forEach(claim => { //
-                    formattedData[claim.id] = claim; //
-                });
+            // Convert the array from MongoDB into the object format your UI expects
+            const formattedData = {};
+            data.forEach(claim => {
+              formattedData[claim.id] = claim;
+            });
 
-                // Update the app memory
-                setClaimsDb(formattedData); //
-                
-                // Dynamically select the very first claim from the database
-                if (data.length > 0) { //
-                    setSelectedClaimId(data[0].id); //
-                }
-                
-                setIsLoading(false); // Turn off the loading screen
-            } catch (err) {
-                console.error(err); //
-                setError(err.message); //
-                setIsLoading(false); //
-            }
+            setClaimsDb(formattedData);
+            setIsLoading(false);
+          } catch (err) {
+            console.error(err);
+            setError(err.message);
+            setIsLoading(false);
+          }
         };
 
-        loadClaims(); //
-    }, []); // Empty array ensures this only runs once on load
+        loadClaims();
+      }, []); // Empty array ensures this only runs once on load
 
-    // 4. SAFETY GUARDS (Prevents crashes while data is downloading)
-    // Because fetching data from a real database takes a split second, the if (isLoading) line ensures your dashboard doesn't try to render before the data has arrived.
-    if (isLoading) return <div className="p-10 text-center font-bold text-slate-500">Loading InsureCopilot Dashboard...</div>; //
-    if (error) return <div className="p-10 text-center font-bold text-red-500">Error: {error}</div>; //
+      // const [claimsDb, setClaimsDb] = useState(initialClaimsDatabase);
+      const [currentScreen, setCurrentScreen] = useState('dashboard');
+      const [selectedClaimId, setSelectedClaimId] = useState('CLM-2026-8891');
+      const [activeTab, setActiveTab] = useState('All Open');
 
-    // 5. DYNAMIC CLAIM SELECTION
-    // Fallback ensures it grabs the first claim found to prevent crashing
-    const activeClaim = claimsDb[selectedClaimId] || Object.values(claimsDb)[0]; //
-    
-    // 6. EXISTING UI INTERACTIVE STATES
-    const [approvedPayout, setApprovedPayout] = useState(activeClaim?.recommendedPayout || 0); //
-    const [activeOcrFieldId, setActiveOcrFieldId] = useState('driver_name'); //
-    const [activeDocId, setActiveDocId] = useState('doc-2'); //
-    const [isModalOpen, setIsModalOpen] = useState(false); //
-    const [isDenyModalOpen, setIsDenyModalOpen] = useState(false); //
-    const [isEmailModalOpen, setIsEmailModalOpen] = useState(false); //
-    const [editingOcrField, setEditingOcrField] = useState(null); //
-    const [ocrCorrectionValue, setOcrCorrectionValue] = useState(''); //
-    const [ocrCorrectionNote, setOcrCorrectionNote] = useState(''); //
-    const [zoomedImage, setZoomedImage] = useState(null); //
-    const [overrideReason, setOverrideReason] = useState(''); //
-    const [denialReason, setDenialReason] = useState(''); //
-    const [isModified, setIsModified] = useState(false); //
-    const [emailSent, setEmailSent] = useState(false); //
-    
-    const [activityLogs, setActivityLogs] = useState([]); // Set to empty array for a clean slate
-    const [isAnalyzing, setIsAnalyzing] = useState(false); //
-    const [replaceDocId, setReplaceDocId] = useState(null); //
-    const [uploadDocumentType, setUploadDocumentType] = useState(''); //
-    const fileInputRef = useRef(null); //
+      // ADD THESE TWO LINES TO PREVENT CRASHES WHILE DATA LOADS:
+      if (isLoading) return <div className="p-10 text-center font-bold text-slate-500">Loading InsureCopilot Dashboard...</div>;
+      if (error) return <div className="p-10 text-center font-bold text-red-500">Error: {error}</div>;
 
-     return (
+      // UPDATE YOUR FALLBACK SO IT GRABS THE FIRST REAL CLAIM IF THE HARDCODED ONE IS MISSING:
+      const activeClaim = claimsDb[selectedClaimId] || Object.values(claimsDb)[0];
+      const [approvedPayout, setApprovedPayout] = useState(activeClaim?.recommendedPayout || 0);
+
+      // const activeClaim = claimsDb[selectedClaimId] || claimsDb['CLM-2026-8891'];
+      // const [approvedPayout, setApprovedPayout] = useState(activeClaim.recommendedPayout);
+      
+      // ACTIVE HITL FIELD & DOC SELECTION STATE
+      const [activeOcrFieldId, setActiveOcrFieldId] = useState('driver_name');
+      const [activeDocId, setActiveDocId] = useState('doc-2');
+
+      // MODAL STATES
+      const [isModalOpen, setIsModalOpen] = useState(false);
+      const [isDenyModalOpen, setIsDenyModalOpen] = useState(false);
+      const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+      const [editingOcrField, setEditingOcrField] = useState(null);
+
+      // OCR EDIT FORM STATE
+      const [ocrCorrectionValue, setOcrCorrectionValue] = useState('');
+      const [ocrCorrectionNote, setOcrCorrectionNote] = useState('');
+
+      // LIGHTBOX ZOOM STATE
+      const [zoomedImage, setZoomedImage] = useState(null);
+
+      const [overrideReason, setOverrideReason] = useState('');
+      const [denialReason, setDenialReason] = useState('');
+      const [isModified, setIsModified] = useState(false);
+      const [emailSent, setEmailSent] = useState(false);
+
+      // ACTIVITY FEED LOGS
+      const [activityLogs, setActivityLogs] = useState([
+        { id: 1, type: 'warning', text: 'Low OCR Confidence on CLM-2026-8891 ("Jan Dela Cruz")', time: 'Just now' },
+        { id: 2, type: 'danger', text: 'Coverage Violation (No AON) on CLM-2026-8894', time: '5m ago' },
+        { id: 3, type: 'info', text: 'Form PDF loaded for CLM-2026-8891', time: '10m ago' }
+      ]);
+      // DOCUMENT UPLOAD / REPLACEMENT STATE
+      const [isAnalyzing, setIsAnalyzing] = useState(false);
+      const [replaceDocId, setReplaceDocId] = useState(null);
+      const [uploadDocumentType, setUploadDocumentType] = useState('');
+      const fileInputRef = useRef(null);
+
+      // ADJUSTER DOCUMENT CHECKLIST STATE
+      // Stored separately from uploaded files so the adjuster can confirm
+      // each requirement after reviewing the corresponding submitted file.
+      const [checklistState, setChecklistState] = useState({});
+
+      const checklistKey = (claimId, requirement) => `${claimId}::${requirement}`;
+
+      const isChecklistChecked = (requirement) =>
+        !!checklistState[checklistKey(selectedClaimId, requirement)];
+
+      const handleChecklistToggle = (requirement, checked) => {
+        setChecklistState(prev => ({
+          ...prev,
+          [checklistKey(selectedClaimId, requirement)]: checked
+        }));
+      };
+
+      const triggerFilePicker = (docId = null, documentType = '') => {
+        setReplaceDocId(docId);
+        if (docId) {
+          const existing = (claimsDb[selectedClaimId]?.documents || []).find(doc => doc.id === docId);
+          setUploadDocumentType(existing?.documentType || documentType || '');
+        } else {
+          setUploadDocumentType(documentType || '');
+        }
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+          fileInputRef.current.click();
+        }
+      };
+
+      const runAiAnalysis = (reason) => {
+        setIsAnalyzing(true);
+        setActivityLogs(prev => [
+          { id: Date.now(), type: 'info', text: `AI analysis triggered: ${reason}. Documents and policy rules are being re-evaluated.`, time: 'Just now' },
+          ...prev
+        ]);
+        setTimeout(() => {
+          setIsAnalyzing(false);
+          setActivityLogs(prev => [
+            { id: Date.now() + 1, type: 'success', text: `AI analysis completed for ${selectedClaimId}. Adjuster review remains required.`, time: 'Just now' },
+            ...prev
+          ]);
+        }, 650);
+      };
+
+      const handleDocumentUpload = (event) => {
+        const file = event.target.files && event.target.files[0];
+        if (!file) return;
+
+        const existingDoc = replaceDocId ? (claimsDb[selectedClaimId]?.documents || []).find(doc => doc.id === replaceDocId) : null;
+        const documentType = existingDoc?.documentType || uploadDocumentType || '';
+        if (!documentType) {
+          alert('This upload must be started from a specific claim requirement.');
+          event.target.value = '';
+          return;
+        }
+
+        const objectUrl = URL.createObjectURL(file);
+        const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+        const isImage = file.type.startsWith('image/');
+        const newDoc = {
+          id: replaceDocId || `doc-${Date.now()}`,
+          title: file.name,
+          type: isPdf ? 'pdf_document' : (isImage ? 'image_card' : 'uploaded_file'),
+          fileUrl: objectUrl,
+          fileName: file.name,
+          mimeType: file.type,
+          imageUrl: isImage ? objectUrl : null,
+          imageLabel: isImage ? file.name : null,
+          caption: 'Uploaded by adjuster for claim review.',
+          documentType
+        };
+
+        setClaimsDb(prev => {
+          const target = prev[selectedClaimId];
+          if (!target) return prev;
+          const docs = replaceDocId
+            ? target.documents.map(doc => doc.id === replaceDocId ? { ...newDoc, title: doc.title || file.name } : doc)
+            : [...target.documents, newDoc];
+          return {
+            ...prev,
+            [selectedClaimId]: { ...target, documents: docs, docsCount: docs.length }
+          };
+        });
+
+        setActiveDocId(newDoc.id);
+        setReplaceDocId(null);
+        setUploadDocumentType('');
+        setTimeout(() => scrollToDoc(newDoc.id), 50);
+        runAiAnalysis(replaceDocId ? `document replaced with ${file.name}` : `document ${file.name} uploaded`);
+      };
+
+      const handleRemoveDocument = (docId) => {
+        const doc = activeClaim.documents.find(d => d.id === docId);
+        if (!doc) return;
+        setClaimsDb(prev => {
+          const target = prev[selectedClaimId];
+          if (!target) return prev;
+          const docs = target.documents.filter(d => d.id !== docId);
+          return { ...prev, [selectedClaimId]: { ...target, documents: docs, docsCount: docs.length } };
+        });
+        if (activeDocId === docId) {
+          const remaining = activeClaim.documents.filter(d => d.id !== docId);
+          setActiveDocId(remaining[0] ? remaining[0].id : null);
+        }
+        runAiAnalysis(`document ${doc.fileName || doc.title} removed`);
+      };
+
+      const documentMatchesRequirement = (requirement, documents) => {
+        const text = documents.map(d => `${d.title || ''} ${d.fileName || ''} ${d.caption || ''}`.toLowerCase()).join(' ');
+        const keywordGroups = {
+          'completed motor claim form': ['claim form', 'motor claim form'],
+          'police report or notarized affidavit / facts of accident': ['police report', 'affidavit', 'facts of accident'],
+          'certificate of registration + official receipt': ['certificate of registration', 'registration', 'or/cr', 'official receipt'],
+          "driver's license + official receipt": ['driver license', "driver's license", 'official receipt', 'license'],
+          'pictures of vehicle damages': ['damage photo', 'vehicle damage', 'inspection photo', 'damaged vehicle'],
+          'repair estimate': ['repair estimate', 'estimate'],
+          'certificate of no claim from third party insurer (if third party vehicle involved)': ['no claim', 'no own damage', 'third party insurer'],
+          'authorization letter for vehicle use (if another person drove the vehicle)': ['authorization letter', 'vehicle use'],
+          'completed motor claim form or police report or notarized affidavit / facts of accident': ['claim form', 'police report', 'affidavit', 'facts of accident'],
+          'medical certificate (diagnosis and treatment)': ['medical certificate'],
+          'hospital bill or statement of account (soa)': ['hospital bill', 'statement of account', 'hospital'],
+          'medical receipts': ['medical receipt', 'medical receipts'],
+          'release of claim / notarized affidavit of desistance': ['release of claim', 'affidavit of desistance', 'desistance'],
+          'valid id of claimant (government-issued id with date of birth, signature, and photo)': ['valid id', 'claimant id', 'government id', 'government-issued'],
+          'death certificate (death claim only)': ['death certificate'],
+          'birth certificate (death claim only)': ['birth certificate'],
+          'funeral / burial expenses (death claim only)': ['funeral', 'burial']
+        };
+        const keys = keywordGroups[requirement.toLowerCase()] || [];
+        return keys.some(k => text.includes(k));
+      };
+
+
+      const openClaimDetail = (id) => {
+        setSelectedClaimId(id);
+        const target = claimsDb[id];
+        if (target) {
+          setApprovedPayout(target.recommendedPayout);
+          setIsModified(false);
+          setOverrideReason('');
+          setDenialReason('');
+          setEmailSent(false);
+          if (target.ocrData && target.ocrData.length > 0) {
+            setActiveOcrFieldId(target.ocrData[0].fieldId);
+            setActiveDocId(target.ocrData[0].sourceDoc);
+          }
+        }
+        setCurrentScreen('detail');
+      };
+
+      const handleSelectField = (ocrItem) => {
+        setActiveOcrFieldId(ocrItem.fieldId);
+        if (ocrItem.sourceDoc) {
+          setActiveDocId(ocrItem.sourceDoc);
+          scrollToDoc(ocrItem.sourceDoc);
+        }
+      };
+
+      const handleDirectApprove = () => {
+        setClaimsDb(prev => ({
+          ...prev,
+          [selectedClaimId]: { ...prev[selectedClaimId], status: 'Completed' }
+        }));
+      };
+
+      const handleConfirmDenial = () => {
+        if (!denialReason.trim()) {
+          alert('Please enter a clear reason for denying this claim for regulatory compliance.');
+          return;
+        }
+        setApprovedPayout(0);
+        setClaimsDb(prev => ({
+          ...prev,
+          [selectedClaimId]: { ...prev[selectedClaimId], status: 'Denied' }
+        }));
+        setIsDenyModalOpen(false);
+      };
+
+      const handleSaveAndApproveEdit = () => {
+        if (!overrideReason.trim()) {
+          alert('Please enter your reason / comment for modifying the payout amount.');
+          return;
+        }
+        setIsModified(true);
+        setClaimsDb(prev => ({
+          ...prev,
+          [selectedClaimId]: { ...prev[selectedClaimId], status: 'Completed' }
+        }));
+        setIsModalOpen(false);
+      };
+
+      // --- DYNAMIC AI ANALYSIS RE-EVALUATION ENGINE ---
+      const handleSaveOcrCorrection = () => {
+        if (!ocrCorrectionValue.trim()) {
+          alert('Please enter the corrected value.');
+          return;
+        }
+
+        const fieldId = editingOcrField.fieldId;
+        const newValue = ocrCorrectionValue;
+        setIsAnalyzing(true);
+
+        // 1. Update the OCR item list
+        const updatedOcrList = activeClaim.ocrData.map(item => {
+          if (item.fieldId === fieldId) {
+            return {
+              ...item,
+              correctedValue: newValue,
+              isLowConfidence: false,
+              issueNote: ocrCorrectionNote ? `Adjuster Note: ${ocrCorrectionNote}` : 'Adjuster verified & corrected field.'
+            };
+          }
+          return item;
+        });
+
+        // 2. Re-evaluate AI Analysis & Rules Engine dynamically
+        let updatedRules = [...activeClaim.rules];
+        let updatedFlagSummary = activeClaim.flagSummary;
+        let updatedIsFlagged = activeClaim.isFlagged;
+        let newRecommendedPayout = activeClaim.recommendedPayout;
+
+        // IF DRIVER NAME IS CORRECTED: Check if it now matches policyholder!
+        if (fieldId === 'driver_name') {
+          if (newValue.toLowerCase().trim() === activeClaim.policyholder.toLowerCase().trim()) {
+            updatedRules = updatedRules.filter(r => !r.title.includes('Unnamed Driver'));
+            updatedRules.push({
+              type: 'green',
+              title: '✓ Driver Identity Verified (OCR Corrected)',
+              text: `Adjuster corrected driver name to "${newValue}", matching policyholder record exactly.`
+            });
+
+            newRecommendedPayout = 55000;
+            setApprovedPayout(55000);
+            updatedFlagSummary = '🔴 Battery Excluded (Driver Name Verified)';
+          }
+        }
+
+        // 3. Update Global Database State
+        setClaimsDb(prev => ({
+          ...prev,
+          [selectedClaimId]: {
+            ...prev[selectedClaimId],
+            ocrData: updatedOcrList,
+            rules: updatedRules,
+            flagSummary: updatedFlagSummary,
+            isFlagged: updatedIsFlagged,
+            recommendedPayout: newRecommendedPayout
+          }
+        }));
+
+        // 4. Log the HITL correction event in Activity Feed
+        setActivityLogs(prev => [
+          {
+            id: Date.now(),
+            type: 'success',
+            text: `HITL OCR Override: "${editingOcrField.extractedValue}" → "${newValue}". AI rules re-evaluated.`,
+            time: 'Just now'
+          },
+          ...prev
+        ]);
+
+        setEditingOcrField(null);
+        setOcrCorrectionValue('');
+        setOcrCorrectionNote('');
+        setTimeout(() => setIsAnalyzing(false), 650);
+      };
+
+      const openOcrModal = (field) => {
+        setEditingOcrField(field);
+        setOcrCorrectionValue(field.correctedValue || field.extractedValue);
+        setOcrCorrectionNote('');
+      };
+
+      const scrollToDoc = (docId) => {
+        const el = document.getElementById(docId);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth' });
+        }
+      };
+
+      const filteredClaims = Object.values(claimsDb).filter(claim => {
+        if (activeTab === 'All Open') return claim.status === 'In Assessment';
+        if (activeTab === 'Flagged / Exceptions') return claim.status === 'In Assessment' && claim.isFlagged;
+        if (activeTab === 'Clean / Straight-Through') return claim.status === 'In Assessment' && !claim.isFlagged;
+        if (activeTab === 'Completed') return claim.status === 'Completed' || claim.status === 'Denied';
+        return true;
+      });
+
+      const selectedOcrItem = activeClaim.ocrData ? activeClaim.ocrData.find(i => i.fieldId === activeOcrFieldId) : null;
+
+      return (
         <div className="h-full flex flex-col">
           {/* TOP NAVIGATION BAR */}
           <header className="bg-slate-900 text-white px-6 py-3 flex items-center justify-between shadow-md flex-shrink-0">
@@ -985,5 +1282,7 @@ export default function App () {
           )}
 
         </div>
-    );
-}
+      );
+    }
+
+export default App;
