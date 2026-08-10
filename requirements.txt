@@ -2,3 +2,4 @@ anthropic
 dotenv
 google-genai
 pymongo
+langchain-text-splitters
