@@ -1,5 +1,6 @@
 // Dashboard filter tabs. The ids are matched against claim status in App.jsx's
 // `filteredClaims` derivation — keep the two in sync when adding a tab.
+// ClaimTable.jsx
 const TABS = [
   { id: 'All Open', label: 'All Open' },
   { id: 'Flagged / Exceptions', label: '⚠️ Flagged / Exceptions' },

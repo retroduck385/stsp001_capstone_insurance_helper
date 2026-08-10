@@ -2,6 +2,7 @@
  * Automated policy rules / flags list plus the master policy citation.
  * Rules are colour-coded by rule.type: green (pass), yellow (warning), red (violation).
  */
+// policyrules.jsx
 export default function PolicyRules({ rules, citation }) {
   return (
     <>

@@ -1,3 +1,4 @@
+// app.jsx
 import { useState, useRef, useEffect } from 'react';
 
 import Navbar from './components/Navbar';
@@ -35,10 +36,14 @@ export default function App() {
   const [currentScreen, setCurrentScreen] = useState('dashboard');
   const [selectedClaimId, setSelectedClaimId] = useState(null);
   const [activeTab, setActiveTab] = useState('All Open');
+  const [formEditorTarget, setFormEditorTarget] = useState({ docId: null, requirement: null });
+  const [licenseEditorTarget, setLicenseEditorTarget] = useState({ docId: null, requirement: null });
+
 
   const [approvedPayout, setApprovedPayout] = useState(0);
   const [activeOcrFieldId, setActiveOcrFieldId] = useState(null);
   const [activeDocId, setActiveDocId] = useState(null);
+  
 
   // Modals
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -181,6 +186,63 @@ export default function App() {
       [checklistKey(selectedClaimId, requirement)]: checked
     }));
   };
+
+  const openFormEditor = (docId, requirement) => {
+  console.log('openFormEditor called', { docId, requirement });
+  // clear license editor when opening the motor form editor
+  setLicenseEditorTarget({ docId: null, requirement: null });
+  setFormEditorTarget({ docId, requirement });
+};
+
+  const closeFormEditor = () => setFormEditorTarget({ docId: null, requirement: null });
+
+  // callback when DocumentFormEditor saves updated fields
+  const handleSaveFormFields = (updatedFields) => {
+    // frontend-only: write to claimsDb under a new claimFormFields key for this claim
+    setClaimsDb(prev => {
+      const target = prev[selectedClaimId];
+      if (!target) return prev;
+      return {
+        ...prev,
+        [selectedClaimId]: {
+          ...target,
+          claimFormFields: { ...(target.claimFormFields || {}), ...(updatedFields || {}) }
+        }
+      };
+    });
+    // close the editor
+    closeFormEditor();
+    // trigger AI re-eval for the claim
+    runAiAnalysis(`Adjuster saved form edits on ${selectedClaimId}`);
+ };
+
+ const openLicenseEditor = (docId, requirement) => {
+  console.log('openLicenseEditor called', { docId, requirement });
+  // clear form editor when opening the license editor
+  setFormEditorTarget({ docId: null, requirement: null });
+  setLicenseEditorTarget({ docId, requirement });
+};
+
+const closeLicenseEditor = () => setLicenseEditorTarget({ docId: null, requirement: null });
+
+const handleSaveLicenseFields = (licensePayload) => {
+  // licensePayload keys: driver_license_number, driver_license_class, ...
+  setClaimsDb(prev => {
+    const target = prev[selectedClaimId];
+    if (!target) return prev;
+    return {
+      ...prev,
+      [selectedClaimId]: {
+        ...target,
+        claimFormFields: { ...(target.claimFormFields || {}), ...licensePayload },
+        // optionally also store driver license data under a predictable key
+        driverLicenseData: licensePayload
+      }
+    };
+  });
+  closeLicenseEditor();
+  runAiAnalysis(`Adjuster saved license edits on ${selectedClaimId}`);
+};
 
   // ---------------------------------------------------------------------
   // 9. DOCUMENT UPLOAD HANDLERS
@@ -422,7 +484,9 @@ export default function App() {
             isChecklistChecked,
             onToggleRequirement: handleChecklistToggle,
             onViewDocument: setActiveDocId,
-            onZoomImage: setZoomedImage
+            onZoomImage: setZoomedImage,
+            onOpenFormEditor: openFormEditor,
+            onOpenLicenseEditor: openLicenseEditor
           }}
           ocr={{
             activeOcrFieldId,
@@ -435,6 +499,14 @@ export default function App() {
             onDeny: () => setIsDenyModalOpen(true),
             onSendEmail: () => setIsEmailModalOpen(true)
           }}
+          runAiAnalysis={runAiAnalysis}
+          formEditorTarget={formEditorTarget}
+         onCloseFormEditor={closeFormEditor}
+         onSaveFormFields={handleSaveFormFields}
+         licenseEditorTarget={licenseEditorTarget}             
+          onCloseLicenseEditor={closeLicenseEditor}             
+         onSaveLicenseFields={handleSaveLicenseFields}         
+
         />
       )}
 

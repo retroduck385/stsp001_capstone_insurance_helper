@@ -1,11 +1,9 @@
+// components/claims/ClaimRequirements.jsx
 import { claimRequirements, documentMatchesRequirement } from '../../data/claimRequirements';
 import DocumentPreview from './DocumentPreview';
 
 /**
  * Left panel of the claim workspace.
- * Lists the required documents for the claim type, shows whether a matching
- * file was detected, lets the adjuster tick each requirement, and renders the
- * matched document inline underneath it.
  */
 export default function ClaimRequirements({
   activeClaim,
@@ -17,7 +15,9 @@ export default function ClaimRequirements({
   onToggleRequirement,
   onViewDocument,
   onZoomImage,
-  onEditOcr
+  onEditOcr,
+  onOpenFormEditor,
+  onOpenLicenseEditor
 }) {
   const requirements = claimRequirements[activeClaim.claimType] || [];
   const confirmedCount = requirements.filter(req => isChecklistChecked(req)).length;
@@ -45,22 +45,12 @@ export default function ClaimRequirements({
         </div>
       </div>
 
-      {/* CLAIM TYPE / COVERAGE / DOCUMENT REQUIREMENTS */}
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-4 flex-1 overflow-y-auto">
         <div className="flex items-center justify-between">
           <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Claim Requirements & Coverage</h2>
           <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-bold border border-blue-100">Source-Based Workflow</span>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
-            <span className="text-[10px] text-blue-600 font-bold uppercase block">Claim Type</span>
-            <span className="text-sm font-extrabold text-blue-900">{activeClaim.claimType || 'Not yet classified'}</span>
-          </div>
-          <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-            <span className="text-[10px] text-slate-500 font-bold uppercase block">Policy Coverage</span>
-            <span className="text-sm font-extrabold text-slate-800">{activeClaim.status === 'Denied' ? 'Coverage requires review' : 'Applicable coverage requires policy verification'}</span>
-          </div>
-        </div>
+
         <div>
           <div className="flex justify-between items-center mb-2">
             <div>
@@ -71,12 +61,19 @@ export default function ClaimRequirements({
               {confirmedCount}/{requirements.length} Confirmed
             </span>
           </div>
+
           <div className="grid grid-cols-1 gap-2">
             {requirements.map((req, idx) => {
               const supplied = documentMatchesRequirement(req, activeClaim.documents);
               const checked = isChecklistChecked(req);
               const isConditional = req.toLowerCase().includes('(if ') || req.toLowerCase().includes('(death claim only)');
               const matchedDoc = (activeClaim.documents || []).find(doc => documentMatchesRequirement(req, [doc]));
+
+              // compute license/receipt detection here (inside the map callback)
+              const reqText = (req || '').toLowerCase();
+              const looksLikeLicense = /driver'?s?\s*license/.test(reqText) || reqText.includes('driver license');
+              const looksLikeReceipt = /official receipt|receipt|\bor\b/.test(reqText);
+              const showEditLicense = matchedDoc && looksLikeLicense && !looksLikeReceipt && typeof onOpenLicenseEditor === 'function';
 
               return (
                 <div
@@ -110,6 +107,7 @@ export default function ClaimRequirements({
                       <span className="font-bold whitespace-nowrap">
                         {checked ? '✓ Confirmed' : supplied ? '📄 File detected' : '⚠ Not uploaded'}
                       </span>
+
                       <button
                         type="button"
                         onClick={(e) => {
@@ -125,6 +123,34 @@ export default function ClaimRequirements({
                       >
                         {matchedDoc ? '↻ Replace' : '＋ Upload'}
                       </button>
+
+                      {/* Edit Form */}
+                      {matchedDoc && (req || '').toLowerCase().includes('motor claim form') && typeof onOpenFormEditor === 'function' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenFormEditor(matchedDoc.id, req);
+                          }}
+                          className="ml-2 text-[10px] bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-1 rounded font-bold"
+                          title="Edit parsed form fields"
+                        >
+                          Edit Form
+                        </button>
+                      )}
+
+                      {/* Edit Driver's License (only shown for license requirement, not receipt rows) */}
+                      {showEditLicense && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenLicenseEditor(matchedDoc.id, req);
+                          }}
+                          className="ml-2 text-[10px] bg-violet-600 hover:bg-violet-500 text-white px-2 py-1 rounded font-bold"
+                          title="Edit Driver's License fields"
+                        >
+                          Edit License
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -142,6 +168,7 @@ export default function ClaimRequirements({
               );
             })}
           </div>
+
           <div className="mt-2 p-2 bg-slate-50 border border-slate-200 rounded text-[10px] text-slate-500">
             <strong>Workflow:</strong> Upload or Replace from a requirement automatically associates the file with that document type and triggers AI re-analysis. Checking a box records the adjuster’s confirmation.
           </div>

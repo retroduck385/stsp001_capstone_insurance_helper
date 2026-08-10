@@ -3,6 +3,7 @@
  * NOTE: the counts are still hardcoded placeholders — they are not derived
  * from claimsDb yet.
  */
+// dashboardstats.jsx
 export default function DashboardStats() {
   return (
     <div className="grid grid-cols-3 gap-4">

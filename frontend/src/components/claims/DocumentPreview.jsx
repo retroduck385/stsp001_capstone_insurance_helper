@@ -4,6 +4,8 @@
  * (pdf_document / image_card / estimate / uploaded_file), followed by the OCR
  * fields that were extracted from this specific document.
  */
+
+// documentpreview.jsx
 export default function DocumentPreview({ doc, ocrData, onView, onZoomImage, onEditOcr }) {
   const docOcrFields = (ocrData || []).filter(field => field.sourceDoc === doc.id);
 

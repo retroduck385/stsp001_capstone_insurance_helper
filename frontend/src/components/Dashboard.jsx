@@ -1,3 +1,4 @@
+// dashboard.jsx
 import DashboardStats from './dashboard/DashboardStats';
 import ClaimTable from './dashboard/ClaimTable';
 import ActivitySidebar from './dashboard/ActivitySidebar';

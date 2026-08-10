@@ -4,6 +4,7 @@
  * document into view, and "Correct OCR" opens the correction modal.
  * Renders nothing when the claim has no OCR data.
  */
+// ocrverification.jsx
 export default function OcrVerification({ ocrData, activeOcrFieldId, onSelectField, onEditOcr }) {
   if (!ocrData || ocrData.length === 0) return null;
 

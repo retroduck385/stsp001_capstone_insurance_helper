@@ -1,11 +1,10 @@
-import OcrVerification from './OcrVerification';
 import PolicyRules from './PolicyRules';
 import DecisionPanel from './DecisionPanel';
 
 /**
  * Right panel of the claim workspace.
  * Owns the assessment metrics block (claimed amount / approved payout / policy
- * status) and stacks the OCR inspector, policy rules and decision bar below it.
+ * status) and stacks the policy rules and decision bar below it.
  */
 export default function ClaimAssessment({
   activeClaim,
@@ -14,20 +13,12 @@ export default function ClaimAssessment({
   overrideReason,
   denialReason,
   emailSent,
-  ocr,
   decision
 }) {
   const isDenied = activeClaim.status === 'Denied';
 
   return (
     <section className="w-1/2 flex flex-col space-y-4 overflow-y-auto pr-1">
-
-      <OcrVerification
-        ocrData={activeClaim.ocrData}
-        activeOcrFieldId={ocr.activeOcrFieldId}
-        onSelectField={ocr.onSelectField}
-        onEditOcr={ocr.onEditOcr}
-      />
 
       {/* ASSESSMENT METRICS */}
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">

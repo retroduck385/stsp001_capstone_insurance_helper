@@ -2,6 +2,7 @@
  * Right-hand activity feed on the dashboard.
  * Logs are pushed by App.jsx's runAiAnalysis / OCR correction handlers.
  */
+// activitysidebar.jsx
 export default function ActivitySidebar({ activityLogs }) {
   return (
     <aside className="w-80 bg-white border-l border-slate-200 p-4 flex flex-col space-y-4 flex-shrink-0">
