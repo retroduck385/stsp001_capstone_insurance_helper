@@ -177,6 +177,49 @@ and/or death to any member of the Insured’s household who is riding in the Sch
 
 
 
+
+def extract_global_conditions() -> dict:
+    text = """
+        This Policy and the Schedule shall be read together, as one contract, and any word or expression to which a specific meaning has been attached in any part of this Policy or of the Schedule shall bear such specific meaning wherever it may appear.
+Every notice or communication to be given or made under this Policy shall be delivered in writing to the Company.
+The Insured shall take all reasonable steps to safeguard the Scheduled Vehicle from loss or damage and to maintain the Scheduled Vehicle in efficient condition, and the Company shall have at all times free and full access to examine the Scheduled Vehicle or any part thereof or any driver or employee of the Insured. In the event of any accident or breakdown, the Scheduled Vehicle shall not be left unattended without proper precaution being taken to prevent further loss or damage and if the Scheduled Vehicle be driven before the necessary repairs are effected, any extension of the damage or any further damage to the Scheduled Vehicle shall be excluded from the scope of the indemnity granted by this Policy.
+In the event of any accident which may give rise to a claim under this Policy, the Insured shall, as soon as possible, give notice thereof to the Company with full particulars. Every letter, claim, writ, summons and process shall be notified or forwarded to the Company immediately on receipt. Notice shall also be given to the Company immediately as soon as the Insured shall have knowledge of any impending prosecution, inquest or fatal inquiry in connection with any such occurrence. In case of theft or other criminal act which may give rise to a claim under this Policy, the Insured shall give immediate notice to the Police and cooperate with the Company in securing the conviction of the offender.
+Without prejudice to No. 2 of the General Exceptions, no admission, offer, promise or payment shall be made by or on behalf of the Insured without written consent of the Company which shall be entitled to take over the conduct in his name the defense or settlement of any claim, or to prosecute in his name for its own benefit any claim for indemnity or damages or otherwise, but shall not exercise any discretion prejudicial to the interest of the insured in the conduct of any proceedings in the settlement of any claim, and the Insured shall give all such information and assistance as the Company may require. If the Company shall with the consent of the Insured make any payment in settlement of any claim, and such payment includes any amount not covered by this Policy, the Insured shall repay the Company the amount not so covered.
+At any time after the happening of any event giving rise to a claim or series of claims under this Policy, the Company may pay to the Insured and the Third Party claimant jointly the full amount of the Company’s liability and relinquish the conduct of any defense, settlements or proceedings, and the Company shall not be responsible for any damage alleged to have been caused to the Insured in consequence of any alleged action or omission of the Company in connection in such defense, settlement or proceedings or of the Company relinquishing such conduct, nor shall the Company be liable for any costs or expenses whatsoever incurred by the Insured or any claimant or other person after the Company shall have so relinquished.
+The Company may cancel this Policy in accordance with Sections 64, 65, and 393 of the Insurance Code, in which case, the Company shall thereupon return to the Insured premiums paid less the pro rate portion thereof for the period when the Policy has been in force. The Insured may, at any time, cancel the Policy by surrendering it to the Company and (provided no claim has arisen during the then current period of Insurance) the insured shall be entitled to a return of the premium at the Company’s Short Period Rates for the period when the policy has been in force. However, in respect of Section I and II, the cancellation made by the Insured shall not be effective unless he has secured a similar policy of insurance of surety bond to replace the policy to be cancelled or make a cash deposit in sufficient amount with the Commissioner and without any gap file within (5) working days from date of cancellation the required documentation with the Bureau of Land Transportation in accordance with Section 394 of the Insurance Code.
+If, at the time any claim arises under this Policy, there is any other Insurance covering the same loss, damage or liability, the Company shall not be liable to pay or contribute more than its ratable proportion of any loss, damage compensation, costs or expenses. Provided always that nothing in this Condition shall impose on the Company any liability from which but for this Condition, it would have been relieved under proviso (ii) of Section 1-2 (a) of this Policy.
+Except in case of claims arising under Sections I and II of this Policy, if any difference of dispute shall arise with respect to the amount of the Company’s liability under this Policy, the same shall be referred to the decision of a single arbitrator, to be agreed upon by both parties or, failing such agreement of a single arbitrator, to the decision of two arbitrators, one to be appointed in writing by each of the parties within one calendar month after having been required in writing to do so by either of the parties and, in case of disagreement between the arbitrators, to the decision of an umpire who shall have been appointed in writing by the arbitrators, before entering on the reference, and the costs of and expenses incidental to the reference shall be dealt with in the award. And it is hereby expressly stipulated and declared that it shall be a condition precedent to any right of action or suit upon this Policy that the award by such arbitrators or umpire of the amount of the Company’s liability hereunder, if disputed, shall be first obtained. If a claim be made and rejected, and an action or suit be not commenced within twelve months after such rejection, or in case of an arbitration taking place as provided herein, within twelve months after the arbitrator or arbitrators or umpire shall have made their award, then the claim shall, for all purposes, be deemed to have been abandoned and shall not hereafter be recoverable hereunder. Provided, however, that in case of any dispute in the enforcement of the provisions of Section I and II of this Policy, the adjudication of such dispute shall be within the original and exclusive jurisdiction of the Insurance Commissioner, subject to the limitations provided in Section 430 of the Insurance Code, as amended.
+The due observance and fulfillment of the Terms of this Policy, insofar as they relate to anything to be done or not be done by the Insured, and the truth of the statements and answer in the proposal, shall be conditions precedent to any liability of the Company to make any payment under this Policy.
+In the event that the Company should pay or be held liable to pay any claim or claims under “No Fault” provision of the Insurance Code, the Insured shall reimburse the Company all such sums, whatsoever the Insured or his authorized driver or representative has committed a breach of any of the warranties, clauses or conditions of the Policy, or whenever the circumstances fall under any of the EXCEPTIONS listed in the Policy, for which the Company would not have been liable were it not for the application of the “No-Fault” provision of the Insurance Code.
+    """
+
+    #split text
+    splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50, length_function=token_length, separators=["\n\n", "\n", ". ", " "])
+    chunks = splitter.split_text(text)
+
+    ##embedding
+    embedded_chunks = []
+    for i,chunk in enumerate(chunks):
+        response = client.models.embed_content(
+            model="gemini-embedding-001",
+            contents=chunk,
+            config = {
+                "task_type": "retrieval_document",
+                "title": f"global_condition_chunk_{i}"
+            }
+        )
+        embedded_chunks.append({
+            "chunk_id": f"global-condition-chunk-{i}",
+            "text": chunk,
+            "embedding": response.embeddings[0].values,
+            "token_count": token_length(chunk)
+        })
+
+    ##store the chunks in collection
+    store = RuleStore(connection_string = None, collection_name="global_conditions")
+    return store.insert_chunks(embedded_chunks)
+
+
 def extract_injury_payments(pdf_path: str) -> dict:
     text = read_pdf_text(pdf_path)
 
@@ -303,6 +346,7 @@ if __name__ == "__main__":
     # inserted_chunks = extract_damage_payments(pdf_file)
     # print(f"Inserted chunks with id: , {inserted_chunks}")
     # print(f"Inserted rule documents with ids: {inserted_ids}")
+    # inserted_chunks = extract_general_exceptions()
 
-    inserted_chunks = extract_general_exceptions()
+    inserted_chunks = extract_global_conditions()
     print(f"Inserted chunks with id: , {inserted_chunks}")
