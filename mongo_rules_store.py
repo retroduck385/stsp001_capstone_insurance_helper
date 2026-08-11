@@ -41,7 +41,6 @@ class RuleStore:
            self.collection.insert_one({
                 "chunk_id": c.get("chunk_id"),
                 "policy_id": "axa_private_car_policy",
-                "section": "III",
                 "text": c.get("text"),
                 "embedding": c.get("embedding"),
                 "token_count": c.get("token_count"),

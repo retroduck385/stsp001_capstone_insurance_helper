@@ -1,7 +1,4 @@
-import os
 import json
-from pydoc import text
-from urllib import response
 import pdfplumber
 from google import genai
 from dotenv import load_dotenv
@@ -120,66 +117,9 @@ vehicle provided that—
 
 
 
-def extract_general_exceptions() -> dict:
+def extract_global_conditions_and_general_exceptions() -> dict:
     text = """
-        The Company shall not be liable under any Section of this Policy in respect of:
-1. Any accident, or liability caused, or incurred
-(a)
-outside the Republic of the Philippines;
-(b)
-2.
-whilst any MOTOR VEHICLE in respect of which indemnity is provided by this Policy is:
-(i)    
-being used otherwise than in accordance with the limitations as to use;
-(ii)
-    being drive by any person other than an Authorized Driver;
-Any liability which attached by virtue of an agreement but which would not have attached in the absence of such agreement, except liability 
-arising out of an on the spot agreement or amicable settlement of minor accident to avoid impairing the flow of traffic.
-3. Except in respect of claims arising under Sections I and II of this Policy any accident, loss, damage or liability directly or indirectly, proximately 
-or remotely occasioned by, contributed to by or traceable to, or arising out of, or in connection with flood, typhoon, hurricane, volcanic 
-eruption, earthquake or other convulsion of nature, invasion, the act of foreign enemies, hostilities or warlike operations (whether war be 
-declared or not), strike, riot, civil commotion, mutiny, rebellion, insurrection, military or usurped power, or by any direct or indirect 
-consequences of any of the said occurrences and in the event of any claim hereunder, the Insured shall prove that the accident, loss or 
-damage or liability arose independently of, and was in no way connected with, or occasioned by, or contributed to, any of the said 
-occurrences, or any consequences thereof, and in default of such proof, the Company shall not be liable to make any payment in respect of 
-such a claim.
-4.Any sum which the Insured would have been entitled to recover from any party but for an agreement between the Insured and such party.
-5.Bodily injury and/or death to any person in the employ of the Insured arising out of and in the course of such employment, or bodily injury 
-and/or death to any member of the Insured’s household who is riding in the Scheduled Vehicle.
-    """
-
-
-    #split text
-    splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50, length_function=token_length, separators=["\n\n", "\n", ". ", " "])
-    chunks = splitter.split_text(text)
-
-    ##embedding
-    embedded_chunks = []
-    for i,chunk in enumerate(chunks):
-        response = client.models.embed_content(
-            model="gemini-embedding-001",
-            contents=chunk,
-            config = {
-                "task_type": "retrieval_document",
-                "title": f"Exception_chunk_{i}"
-            }
-        )
-        embedded_chunks.append({
-            "chunk_id": f"Exception-chunk-{i}",
-            "text": chunk,
-            "embedding": response.embeddings[0].values,
-            "token_count": token_length(chunk)
-        })
-
-    ##store the chunks in collection
-    store = RuleStore(connection_string = None, collection_name="general_exceptions")
-    return store.insert_chunks(embedded_chunks)
-
-
-
-
-def extract_global_conditions() -> dict:
-    text = """
+    GLOBAL CONDITIONS
         This Policy and the Schedule shall be read together, as one contract, and any word or expression to which a specific meaning has been attached in any part of this Policy or of the Schedule shall bear such specific meaning wherever it may appear.
 Every notice or communication to be given or made under this Policy shall be delivered in writing to the Company.
 The Insured shall take all reasonable steps to safeguard the Scheduled Vehicle from loss or damage and to maintain the Scheduled Vehicle in efficient condition, and the Company shall have at all times free and full access to examine the Scheduled Vehicle or any part thereof or any driver or employee of the Insured. In the event of any accident or breakdown, the Scheduled Vehicle shall not be left unattended without proper precaution being taken to prevent further loss or damage and if the Scheduled Vehicle be driven before the necessary repairs are effected, any extension of the damage or any further damage to the Scheduled Vehicle shall be excluded from the scope of the indemnity granted by this Policy.
@@ -191,6 +131,32 @@ If, at the time any claim arises under this Policy, there is any other Insurance
 Except in case of claims arising under Sections I and II of this Policy, if any difference of dispute shall arise with respect to the amount of the Company’s liability under this Policy, the same shall be referred to the decision of a single arbitrator, to be agreed upon by both parties or, failing such agreement of a single arbitrator, to the decision of two arbitrators, one to be appointed in writing by each of the parties within one calendar month after having been required in writing to do so by either of the parties and, in case of disagreement between the arbitrators, to the decision of an umpire who shall have been appointed in writing by the arbitrators, before entering on the reference, and the costs of and expenses incidental to the reference shall be dealt with in the award. And it is hereby expressly stipulated and declared that it shall be a condition precedent to any right of action or suit upon this Policy that the award by such arbitrators or umpire of the amount of the Company’s liability hereunder, if disputed, shall be first obtained. If a claim be made and rejected, and an action or suit be not commenced within twelve months after such rejection, or in case of an arbitration taking place as provided herein, within twelve months after the arbitrator or arbitrators or umpire shall have made their award, then the claim shall, for all purposes, be deemed to have been abandoned and shall not hereafter be recoverable hereunder. Provided, however, that in case of any dispute in the enforcement of the provisions of Section I and II of this Policy, the adjudication of such dispute shall be within the original and exclusive jurisdiction of the Insurance Commissioner, subject to the limitations provided in Section 430 of the Insurance Code, as amended.
 The due observance and fulfillment of the Terms of this Policy, insofar as they relate to anything to be done or not be done by the Insured, and the truth of the statements and answer in the proposal, shall be conditions precedent to any liability of the Company to make any payment under this Policy.
 In the event that the Company should pay or be held liable to pay any claim or claims under “No Fault” provision of the Insurance Code, the Insured shall reimburse the Company all such sums, whatsoever the Insured or his authorized driver or representative has committed a breach of any of the warranties, clauses or conditions of the Policy, or whenever the circumstances fall under any of the EXCEPTIONS listed in the Policy, for which the Company would not have been liable were it not for the application of the “No-Fault” provision of the Insurance Code.
+
+    GENERAL EXCEPTIONS
+    The Company shall not be liable under any Section of this Policy in respect of:
+    1. Any accident, or liability caused, or incurred
+    (a)
+    outside the Republic of the Philippines;
+    (b)
+    2.
+    whilst any MOTOR VEHICLE in respect of which indemnity is provided by this Policy is:
+    (i)    
+    being used otherwise than in accordance with the limitations as to use;
+    (ii)
+        being drive by any person other than an Authorized Driver;
+    Any liability which attached by virtue of an agreement but which would not have attached in the absence of such agreement, except liability 
+    arising out of an on the spot agreement or amicable settlement of minor accident to avoid impairing the flow of traffic.
+    3. Except in respect of claims arising under Sections I and II of this Policy any accident, loss, damage or liability directly or indirectly, proximately 
+    or remotely occasioned by, contributed to by or traceable to, or arising out of, or in connection with flood, typhoon, hurricane, volcanic 
+    eruption, earthquake or other convulsion of nature, invasion, the act of foreign enemies, hostilities or warlike operations (whether war be 
+    declared or not), strike, riot, civil commotion, mutiny, rebellion, insurrection, military or usurped power, or by any direct or indirect 
+    consequences of any of the said occurrences and in the event of any claim hereunder, the Insured shall prove that the accident, loss or 
+    damage or liability arose independently of, and was in no way connected with, or occasioned by, or contributed to, any of the said 
+    occurrences, or any consequences thereof, and in default of such proof, the Company shall not be liable to make any payment in respect of 
+    such a claim.
+    4.Any sum which the Insured would have been entitled to recover from any party but for an agreement between the Insured and such party.
+    5.Bodily injury and/or death to any person in the employ of the Insured arising out of and in the course of such employment, or bodily injury 
+    and/or death to any member of the Insured’s household who is riding in the Scheduled Vehicle.
     """
 
     #split text
@@ -205,117 +171,126 @@ In the event that the Company should pay or be held liable to pay any claim or c
             contents=chunk,
             config = {
                 "task_type": "retrieval_document",
-                "title": f"global_condition_chunk_{i}"
+                "title": f"chunk_{i}"
             }
         )
         embedded_chunks.append({
-            "chunk_id": f"global-condition-chunk-{i}",
+            "chunk_id": f"chunk-{i}",
             "text": chunk,
             "embedding": response.embeddings[0].values,
             "token_count": token_length(chunk)
         })
 
     ##store the chunks in collection
-    store = RuleStore(connection_string = None, collection_name="global_conditions")
+    store = RuleStore(connection_string = None, collection_name="global_conditions_and_exceptions")
+    store.db.drop_collection(store.collection)
     return store.insert_chunks(embedded_chunks)
 
 
-def extract_injury_payments(pdf_path: str) -> dict:
-    text = read_pdf_text(pdf_path)
+def extract_injury_payments() -> dict:
+    text = """
+    SECTION I – LIABILITY TO THE PUBLIC
 
-    response = client.models.generate_content(
-        model="gemini-3.6-flash",
-        contents=[
-            text,
-            """You are a strict JSON extractor. Output ONLY valid JSON and nothing else.
-Schema:
-{
-  "claims": [
-    {
-        "rule_id": "<unique_rule_id>",
-        "category": "string",
-        "description": "string",
-        "conditions": {
-            "loss_type": "string",
-            "requires_evidence": boolean,
-            "minimum_evidence": [
-                "string"
-            ]
-        },
-        "amount": {
-            "currency": "PHP",
-            "min": integer,
-            "max": integer
-        },
-        "source": "string",
-        "claim_period": {
-            "unit": "days" | "months" | "years",
-            "value": integer
-        }
-    }
-  ]
-}
-For each injury or loss item in the policy, return one claim object that includes rule_id, category, description, conditions, amount, source, and claim_period.
-If you are uncertain about a value, set it to null.
-Do not include prose, markdown, or code fences. do a line break after each value
+The Company will, subject to the Limits of Liability pay all sums necessary to discharge liability of the Insured in respect of bodily injury and/or death to any THIRD PARTY, in an accident caused by or arising out of the use of Scheduled Vehicle, provided that the Insured's liability shall have first been determined. In no case, however, shall the Company's total payment under both Section I and Section II combined exceed the Limits of Liability set forth herein. With respect to bodily injury and/or death to any party, the company's payment per victim in any one accident shall not exceed the limits indicated in the Schedule of Indemnities provided for this policy.
+In terms of and subject to the limitations of this Policy, the Company will indemnify:-
+(a) Any Authorized Driver who is driving the Scheduled Vehicle, provided that he:-
+(i) Observes, fulfills, and be subject to the Terms of this Policy insofar as they can apply;
+(ii) Is not entitled to indemnity under any other policy subject, however, to Condition No. 8 of the Conditions Applicable To All Sections.
+(b) The Insured whilst personally driving a private motor car not belonging to him and not hired to him under a hire purchase agreement.
+In the event of the death of any person entitled to indemnity under this Policy the Company will, in respect of the liability incurred to such person indemnify his personal representatives in terms of, and subject to the terms and conditions hereof.
+The Company will pay all pertinent and reasonable costs and expenses incurred in connection with the accident.
+In the event of accident involving indemnity under this Policy to more than one person, the Limits of Liability shall not exceed the aggregate amount so specified by law to all persons to be indemnified. Should indemnification both to liability of the Insured and that of another party (as provided under Authorized Driver) be provable, the Insured's shall have prior right thereto.
+Unless the Insured objects, the Company shall:-
+(a) arrange for representation at any inquest or investigation in respect of any death which may be the subject of indemnity under this Section
+(b) undertake the defense in the Insurance Commission under Section 398 of the Insurance Code, or in any court of law, for alleged offenses causing, or relating to, any event which may be the subject to indemnity under this Section.
 
-Category and loss type have the following heirarchy:
 
-Category
-│
-├── injury
-│   ├── fracture
-│   ├── burn
-│   ├── laceration
-│   └── disability
-|   |__ death
-│
-├── property
-│   ├── fire_damage
-│   ├── water_damage
-│   ├── structural_damage
-│   └── theft
-│
-├── vehicle
-│   ├── collision
-│   ├── theft
-│   ├── vandalism
-│   └── weather_damage
-│
-└── financial
-    ├── income_loss
-    ├── business_interruption
-    └── medical_expense
+        SCHEDULE OF INDEMNITIES FOR BODILY INJURY AND/OR DEATH
 
-An example of a valid JSON output is:
-{
-  "_id": "permanent_disablement_rule_5",
-  "category": "injury",
-  "loss_type": "disability",
-  "description": "Loss of Arm at or Above elbow",
-  "amount": {
-    "min": 20000,
-    "max": 20000,
-    "currency": "PHP"
-  },
+The following Schedule of Indemnities shall be observed in the settlement of claims for death, bodily injuries and professional fees and hospital charges for services rendered to traffic accident victims under the Compulsory Motor Vehicle Liability Insurance Coverage.
 
-  "claim_period": {
-    "value": 60,
-    "unit": "days",
-  },
+A. DEATH INDEMNITY
 
-  "evidence": [
-    "police_report",
-    "photos",
-    "repair_estimate"
-  ]
-}
+Death Indemnity — P 70,000.00
+Burial and Funeral Expenses — 30,000.00
 
-"""
-        ],
-    )
+B. BODILY INJURIES AND FRACTURES – Maximum
 
-    return response.text
+Loss of or Loss of use of:
+
+Two Limbs — P 50,000.00
+Both hands, or all fingers & both thumbs — 50,000.00
+Both Feet — 50,000.00
+
+Types of Accommodation or Professional Attendance / Extended Services Rendered — Reimbursement Fees and/or Charges:
+
+Hospital Rooms — Maximum of 45 days per accident — P 500.00 / day
+Surgical Expenses —
+Major Operation — 2,000.00
+Medium Operation — 7,500.00
+Minor Operation — 5,000.00
+Anesthesiologist's Fees —
+Major Operation — 1,500.00
+Medium Operation — 2,500.00
+Minor Operation — 2,000.00
+Operating Room —
+Major Operation — 500.00
+Medium Operation — 1,500.00
+Minor Operation — 1,000.00
+Medical Expenses — For daily visits of Practitioner or Specialist — 500.00
+Laboratory examination fees, X-rays — The total amount of medical expenses must not exceed (for a single period of confinement) — 400.00 / day
+Drugs & Medicine — Actual Value of drugs and medicine used but not to exceed — 5,000.00
+Ambulance — Actual amount charged for ambulance transport but not to exceed — 20,000.00 (cross-reference note: 1,500.00 also appears associated with this line in the source layout — see note below)
+
+C. PERMANENT DISABLEMENT AMOUNT
+
+One Hand and one foot — 50,000.00
+Sight of both eyes — 50,000.00
+Injuries resulting in being permanently bedridden — 50,000.00
+Any other injury causing permanent total disablement — 50,000.00
+Arm at or above elbow — 20,000.00
+Arm between elbow and wrist — 15,000.00
+Hand — 15,000.00
+Four fingers and thumb of one hand — 15,000.00
+Four Fingers — 12,000.00
+Leg at or above knee — 20,000.00
+Leg below knee — 15,000.00
+One foot — 15,000.00
+All Toes of one foot — 10,000.00
+Thumb — 8,000.00
+Index Finger — 6,000.00
+Sight of one Eye — 20,000.00
+Hearing – Both Ears — 30,000.00
+Hearing – One Ear — 15,000.00
+        """
+    
+        #split text
+    splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50, length_function=token_length, separators=["\n\n", "\n", ". ", " "])
+    chunks = splitter.split_text(text)
+    
+    ##embedding
+    embedded_chunks = []
+    for i,chunk in enumerate(chunks):
+        response = client.models.embed_content(
+            model="gemini-embedding-001",
+            contents=chunk,
+            config = {
+                "task_type": "retrieval_document",
+                "title": f"chunk_{i}"
+            }
+        )
+        embedded_chunks.append({
+            "chunk_id": f"chunk-{i}",
+            "text": chunk,
+            "embedding": response.embeddings[0].values,               
+            "token_count": token_length(chunk)
+        })
+    
+    ##store the chunks in collection
+    store = RuleStore(connection_string = None, collection_name="injury_policies")
+    store.db.drop_collection(store.collection)
+    return store.insert_chunks(embedded_chunks)
+   
 
 
 def parse_json_response(response_text: str) -> dict:
@@ -340,13 +315,12 @@ def store_rules_to_mongodb(response_text: str, connection_string: str | None = N
 
 
 if __name__ == "__main__":
-    pdf_file = r"C:\Users\river\Downloads\Car Insurance.pdf"
-    response_text = extract_injury_payments(pdf_file)
     # inserted_ids = store_rules_to_mongodb(response_text, os.getenv("MONGODB_URI"))
     # inserted_chunks = extract_damage_payments(pdf_file)
     # print(f"Inserted chunks with id: , {inserted_chunks}")
     # print(f"Inserted rule documents with ids: {inserted_ids}")
     # inserted_chunks = extract_general_exceptions()
 
-    inserted_chunks = extract_global_conditions()
-    print(f"Inserted chunks with id: , {inserted_chunks}")
+     store = RuleStore(connection_string=None, collection_name="injury_policies")
+     sample = store.collection.find_one({"embedding": {"$exists": True}})    
+     print(sample["chunk_id"], len(sample["embedding"]))
