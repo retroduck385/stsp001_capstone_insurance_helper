@@ -144,11 +144,19 @@ const claimSchema = new mongoose.Schema({
       orReceiptDate: { type: Date, default: null }
     },
     driversLicense: {
-      firstName: { type: String, default: null },
-      lastName: { type: String, default: null },
-      licenseNumber: { type: String, default: null },
-      expiryDate: { type: Date, default: null },
-      dlCodes: { type: String, default: null }
+      driver_license_number: { type: String, default: null },
+      driver_license_name: { type: String, default: null },
+      driver_license_dob: { type: String, default: null },
+      driver_license_address: { type: String, default: null },
+      driver_license_class: { type: String, default: null },
+      driver_license_type: { type: String, default: null },
+      driver_license_issue_date: { type: String, default: null },
+      driver_license_expiry_date: { type: String, default: null },
+      driver_license_restrictions: { type: String, default: null },
+      driver_license_place_of_issue: { type: String, default: null },
+      driver_license_control_no: { type: String, default: null },
+      driver_license_blood_type: { type: String, default: null },
+      driver_license_official_receipt: { type: String, default: null }
     },
     repairEstimate: {
       shopName: { type: String, default: null },
