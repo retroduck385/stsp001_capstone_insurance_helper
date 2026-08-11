@@ -24,7 +24,7 @@ def read_pdf_text(pdf_path: str) -> str:
         pages = [page.extract_text() or "" for page in pdf.pages]
     return "\n\n".join(pages)
 
-def extract_damage_payments(pdf_path: str) -> dict:
+def extract_damage_payments() -> dict:
     text = """
          The Company will, subject to the Limits of Liability, indemnify the Insured against loss or damage to the Scheduled Vehicle and its accessories 
 and spare parts whilst thereon:
@@ -115,6 +115,64 @@ vehicle provided that—
 
     ##store the chunks in collection
     store = RuleStore(connection_string = None, collection_name="loss_or_damage_policies")
+    return store.insert_chunks(embedded_chunks)
+
+
+
+
+def extract_general_exceptions() -> dict:
+    text = """
+        The Company shall not be liable under any Section of this Policy in respect of:
+1. Any accident, or liability caused, or incurred
+(a)
+outside the Republic of the Philippines;
+(b)
+2.
+whilst any MOTOR VEHICLE in respect of which indemnity is provided by this Policy is:
+(i)    
+being used otherwise than in accordance with the limitations as to use;
+(ii)
+    being drive by any person other than an Authorized Driver;
+Any liability which attached by virtue of an agreement but which would not have attached in the absence of such agreement, except liability 
+arising out of an on the spot agreement or amicable settlement of minor accident to avoid impairing the flow of traffic.
+3. Except in respect of claims arising under Sections I and II of this Policy any accident, loss, damage or liability directly or indirectly, proximately 
+or remotely occasioned by, contributed to by or traceable to, or arising out of, or in connection with flood, typhoon, hurricane, volcanic 
+eruption, earthquake or other convulsion of nature, invasion, the act of foreign enemies, hostilities or warlike operations (whether war be 
+declared or not), strike, riot, civil commotion, mutiny, rebellion, insurrection, military or usurped power, or by any direct or indirect 
+consequences of any of the said occurrences and in the event of any claim hereunder, the Insured shall prove that the accident, loss or 
+damage or liability arose independently of, and was in no way connected with, or occasioned by, or contributed to, any of the said 
+occurrences, or any consequences thereof, and in default of such proof, the Company shall not be liable to make any payment in respect of 
+such a claim.
+4.Any sum which the Insured would have been entitled to recover from any party but for an agreement between the Insured and such party.
+5.Bodily injury and/or death to any person in the employ of the Insured arising out of and in the course of such employment, or bodily injury 
+and/or death to any member of the Insured’s household who is riding in the Scheduled Vehicle.
+    """
+
+
+    #split text
+    splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50, length_function=token_length, separators=["\n\n", "\n", ". ", " "])
+    chunks = splitter.split_text(text)
+
+    ##embedding
+    embedded_chunks = []
+    for i,chunk in enumerate(chunks):
+        response = client.models.embed_content(
+            model="gemini-embedding-001",
+            contents=chunk,
+            config = {
+                "task_type": "retrieval_document",
+                "title": f"Exception_chunk_{i}"
+            }
+        )
+        embedded_chunks.append({
+            "chunk_id": f"Exception-chunk-{i}",
+            "text": chunk,
+            "embedding": response.embeddings[0].values,
+            "token_count": token_length(chunk)
+        })
+
+    ##store the chunks in collection
+    store = RuleStore(connection_string = None, collection_name="general_exceptions")
     return store.insert_chunks(embedded_chunks)
 
 
@@ -241,7 +299,10 @@ def store_rules_to_mongodb(response_text: str, connection_string: str | None = N
 if __name__ == "__main__":
     pdf_file = r"C:\Users\river\Downloads\Car Insurance.pdf"
     response_text = extract_injury_payments(pdf_file)
-    inserted_ids = store_rules_to_mongodb(response_text, os.getenv("MONGODB_URI"))
-    inserted_chunks = extract_damage_payments(pdf_file)
+    # inserted_ids = store_rules_to_mongodb(response_text, os.getenv("MONGODB_URI"))
+    # inserted_chunks = extract_damage_payments(pdf_file)
+    # print(f"Inserted chunks with id: , {inserted_chunks}")
+    # print(f"Inserted rule documents with ids: {inserted_ids}")
+
+    inserted_chunks = extract_general_exceptions()
     print(f"Inserted chunks with id: , {inserted_chunks}")
-    print(f"Inserted rule documents with ids: {inserted_ids}")
