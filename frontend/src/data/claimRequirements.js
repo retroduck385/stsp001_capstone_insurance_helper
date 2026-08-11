@@ -62,12 +62,29 @@ export const requirementKeywords = {
   'funeral / burial expenses (death claim only)': ['funeral', 'burial']
 };
 
-// Returns true when any of the supplied documents looks like it satisfies the
-// given requirement. Pure function — safe to call during render.
 export function documentMatchesRequirement(requirement, documents) {
-  const text = (documents || [])
-    .map(d => `${d.title || ''} ${d.fileName || ''} ${d.caption || ''}`.toLowerCase())
-    .join(' ');
-  const keys = requirementKeywords[requirement.toLowerCase()] || [];
-  return keys.some(k => text.includes(k));
+  const requirementText = (requirement || '').toLowerCase().trim();
+
+  return (documents || []).some(doc => {
+    const documentType = (doc.documentType || '').toLowerCase().trim();
+
+    // Primary match: the document was uploaded directly for this requirement.
+    if (documentType === requirementText) {
+      return true;
+    }
+
+    // Fallback: preserve the existing keyword-based matching.
+    const text = [
+      doc.title || '',
+      doc.fileName || '',
+      doc.caption || '',
+      doc.documentType || ''
+    ]
+      .join(' ')
+      .toLowerCase();
+
+    const keys = requirementKeywords[requirementText] || [];
+
+    return keys.some(k => text.includes(k.toLowerCase()));
+  });
 }
