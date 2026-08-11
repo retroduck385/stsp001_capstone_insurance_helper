@@ -9,6 +9,8 @@ import OcrCorrectionModal from './components/modals/OcrCorrectionModal';
 import DenyClaimModal from './components/modals/DenyClaimModal';
 import EditPayoutModal from './components/modals/EditPayoutModal';
 import EmailModal from './components/modals/EmailModal';
+import { fetchClaims, uploadDocument, replaceDocument, saveOcrCorrections } from './services/api';
+import { buildOcrPatch } from './services/ocrAdapter';
 
 /**
  * Application root.
@@ -79,10 +81,10 @@ export default function App() {
   useEffect(() => {
     const loadClaims = async () => {
       try {
-        const response = await fetch('http://localhost:5001/api/claims');
-        if (!response.ok) throw new Error('Failed to fetch claims from server');
-
-        const data = await response.json();
+        // fetchClaims also rewrites each document's fileUrl/imageUrl from the
+        // relative path the API stores ("/uploads/x.pdf") to an absolute one
+        // pointing at the backend, so previews resolve.
+        const data = await fetchClaims();
 
         // The API returns an array; the UI works with an id-keyed object.
         const formattedData = {};
@@ -196,24 +198,48 @@ export default function App() {
 
   const closeFormEditor = () => setFormEditorTarget({ docId: null, requirement: null });
 
+  /**
+   * Saves adjuster edits to one ocrData section, to MongoDB.
+   *
+   * `edits` is a flat { fieldId: value } object as both editors emit.
+   * buildOcrPatch converts it into the nested shape the backend stores, and
+   * drops anything that hasn't actually changed.
+   */
+  const persistOcrEdits = async (edits, sectionKey, reason) => {
+    const claimId = selectedClaimId;
+    const patch = buildOcrPatch(edits, sectionKey, claimsDb[claimId]?.ocrDataRaw);
+
+    if (Object.keys(patch).length === 0) {
+      runAiAnalysis(`${reason} (no changes to save)`);
+      return;
+    }
+
+    setIsAnalyzing(true);
+    try {
+      const updatedClaim = await saveOcrCorrections(claimId, patch);
+      setClaimsDb(prev => ({ ...prev, [claimId]: updatedClaim }));
+      runAiAnalysis(reason);
+    } catch (err) {
+      setIsAnalyzing(false);
+      console.error(err);
+      setActivityLogs(prev => [
+        { id: Date.now(), type: 'danger', text: `Could not save edits: ${err.message}`, time: 'Just now' },
+        ...prev
+      ]);
+      alert(`Could not save: ${err.message}`);
+    }
+  };
+
   // callback when DocumentFormEditor saves updated fields
-  const handleSaveFormFields = (updatedFields) => {
-    // frontend-only: write to claimsDb under a new claimFormFields key for this claim
-    setClaimsDb(prev => {
-      const target = prev[selectedClaimId];
-      if (!target) return prev;
-      return {
-        ...prev,
-        [selectedClaimId]: {
-          ...target,
-          claimFormFields: { ...(target.claimFormFields || {}), ...(updatedFields || {}) }
-        }
-      };
-    });
-    // close the editor
+  const handleSaveFormFields = async (updatedFields) => {
+    // The editor emits the damage table as `damage_rows`, but the schema calls
+    // it `description_of_damage`. Rename it on the way through.
+    const { damage_rows, ...rest } = updatedFields || {};
+    const edits = { ...rest };
+    if (damage_rows !== undefined) edits.description_of_damage = damage_rows;
+
     closeFormEditor();
-    // trigger AI re-eval for the claim
-    runAiAnalysis(`Adjuster saved form edits on ${selectedClaimId}`);
+    await persistOcrEdits(edits, 'motorClaimForm', `Adjuster saved form edits on ${selectedClaimId}`);
  };
 
  const openLicenseEditor = (docId, requirement) => {
@@ -225,23 +251,13 @@ export default function App() {
 
 const closeLicenseEditor = () => setLicenseEditorTarget({ docId: null, requirement: null });
 
-const handleSaveLicenseFields = (licensePayload) => {
+const handleSaveLicenseFields = async (licensePayload) => {
   // licensePayload keys: driver_license_number, driver_license_class, ...
-  setClaimsDb(prev => {
-    const target = prev[selectedClaimId];
-    if (!target) return prev;
-    return {
-      ...prev,
-      [selectedClaimId]: {
-        ...target,
-        claimFormFields: { ...(target.claimFormFields || {}), ...licensePayload },
-        // optionally also store driver license data under a predictable key
-        driverLicenseData: licensePayload
-      }
-    };
-  });
+  // Two of them (driver_license_type, driver_license_issue_date) are commented
+  // out in the Mongoose schema; buildOcrPatch drops them rather than sending
+  // fields the backend would silently discard.
   closeLicenseEditor();
-  runAiAnalysis(`Adjuster saved license edits on ${selectedClaimId}`);
+  await persistOcrEdits(licensePayload, 'driversLicense', `Adjuster saved license edits on ${selectedClaimId}`);
 };
 
   // ---------------------------------------------------------------------
@@ -261,51 +277,75 @@ const handleSaveLicenseFields = (licensePayload) => {
     }
   };
 
-  const handleDocumentUpload = (event) => {
+  /**
+   * Sends the chosen file to the backend, which stores it on disk and appends
+   * its metadata to the claim's `documents` array in MongoDB.
+   *
+   * The server's response — the full updated claim — replaces our local copy,
+   * so what's on screen is always what's actually in the database. Nothing is
+   * added to the UI optimistically: if the upload fails, no phantom document
+   * appears.
+   */
+  const handleDocumentUpload = async (event) => {
     const file = event.target.files && event.target.files[0];
     if (!file) return;
 
-    const existingDoc = replaceDocId ? (claimsDb[selectedClaimId]?.documents || []).find(doc => doc.id === replaceDocId) : null;
+    // Capture these BEFORE any state setter runs. React state updates are
+    // asynchronous, and there's an `await` below — reading replaceDocId after
+    // clearing it would give us a stale value.
+    const claimId = selectedClaimId;
+    const targetDocId = replaceDocId;
+    const isReplacing = Boolean(targetDocId);
+
+    const existingDoc = targetDocId
+      ? (claimsDb[claimId]?.documents || []).find(doc => doc.id === targetDocId)
+      : null;
     const documentType = existingDoc?.documentType || uploadDocumentType || '';
+
     if (!documentType) {
       alert('This upload must be started from a specific claim requirement.');
       event.target.value = '';
       return;
     }
 
-    const objectUrl = URL.createObjectURL(file);
-    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-    const isImage = file.type.startsWith('image/');
-    const newDoc = {
-      id: replaceDocId || `doc-${Date.now()}`,
-      title: file.name,
-      type: isPdf ? 'pdf_document' : (isImage ? 'image_card' : 'uploaded_file'),
-      fileUrl: objectUrl,
-      fileName: file.name,
-      mimeType: file.type,
-      imageUrl: isImage ? objectUrl : null,
-      imageLabel: isImage ? file.name : null,
-      caption: 'Uploaded by adjuster for claim review.',
-      documentType
-    };
+    setIsAnalyzing(true); // drives the "⚙️ AI Analyzing..." badge while in flight
 
-    setClaimsDb(prev => {
-      const target = prev[selectedClaimId];
-      if (!target) return prev;
-      const docs = replaceDocId
-        ? target.documents.map(doc => doc.id === replaceDocId ? { ...newDoc, title: doc.title || file.name } : doc)
-        : [...(target.documents || []), newDoc];
-      return {
-        ...prev,
-        [selectedClaimId]: { ...target, documents: docs, docsCount: docs.length }
-      };
-    });
+    try {
+      const updatedClaim = isReplacing
+        ? await replaceDocument(claimId, targetDocId, file, documentType)
+        : await uploadDocument(claimId, file, documentType);
 
-    setActiveDocId(newDoc.id);
-    setReplaceDocId(null);
-    setUploadDocumentType('');
-    setTimeout(() => scrollToDoc(newDoc.id), 50);
-    runAiAnalysis(replaceDocId ? `document replaced with ${file.name}` : `document ${file.name} uploaded`);
+      // The database is the source of truth — take the server's version wholesale.
+      setClaimsDb(prev => ({ ...prev, [claimId]: updatedClaim }));
+
+      // A replaced document keeps its id; a new one is appended to the end.
+      const docs = updatedClaim.documents || [];
+      const savedDoc = isReplacing ? docs.find(doc => doc.id === targetDocId) : docs[docs.length - 1];
+      if (savedDoc) {
+        setActiveDocId(savedDoc.id);
+        setTimeout(() => scrollToDoc(savedDoc.id), 50);
+      }
+
+      // Leaves isAnalyzing on for its own 650ms window, then clears it.
+      runAiAnalysis(isReplacing ? `document replaced with ${file.name}` : `document ${file.name} uploaded`);
+    } catch (err) {
+      setIsAnalyzing(false);
+      console.error(err);
+      setActivityLogs(prev => [
+        {
+          id: Date.now(),
+          type: 'danger',
+          text: `Upload of "${file.name}" failed: ${err.message}`,
+          time: 'Just now'
+        },
+        ...prev
+      ]);
+      alert(`Upload failed: ${err.message}`);
+    } finally {
+      setReplaceDocId(null);
+      setUploadDocumentType('');
+      event.target.value = ''; // let the same file be re-selected after a failure
+    }
   };
 
   // ---------------------------------------------------------------------
@@ -331,38 +371,66 @@ const handleSaveLicenseFields = (licensePayload) => {
     setOcrCorrectionNote('');
   };
 
-  // Saving an OCR correction re-runs the (mock) rules engine.
-  const handleSaveOcrCorrection = () => {
+  // Saving an OCR correction persists it, then re-runs the (mock) rules engine.
+  const handleSaveOcrCorrection = async () => {
     if (!ocrCorrectionValue.trim()) {
       alert('Please enter the corrected value.');
       return;
     }
 
+    const claimId = selectedClaimId;
     const fieldId = editingOcrField.fieldId;
     const newValue = ocrCorrectionValue;
+    const note = ocrCorrectionNote;
     setIsAnalyzing(true);
 
-    // 1. Update the OCR item list
-    const updatedOcrList = activeClaim.ocrData.map(item => {
+    // 1. Save the corrected value to MongoDB. `section` comes from the adapter
+    //    and says which ocrData section this field belongs to.
+    let persistedClaim;
+    try {
+      const patch = buildOcrPatch({ [fieldId]: newValue }, editingOcrField.section || null);
+      if (Object.keys(patch).length === 0) {
+        throw new Error(`"${fieldId}" is not a field the backend schema stores.`);
+      }
+      persistedClaim = await saveOcrCorrections(claimId, patch);
+    } catch (err) {
+      setIsAnalyzing(false);
+      console.error(err);
+      setActivityLogs(prev => [
+        { id: Date.now(), type: 'danger', text: `Could not save OCR correction: ${err.message}`, time: 'Just now' },
+        ...prev
+      ]);
+      alert(`Could not save: ${err.message}`);
+      return;
+    }
+
+    // 2. Mark the field as adjuster-corrected in the on-screen list. The schema
+    //    keeps only one value per field, so this distinction is session-only —
+    //    see the note at the top of services/ocrAdapter.js.
+    const updatedOcrList = (persistedClaim.ocrData || []).map(item => {
       if (item.fieldId === fieldId) {
         return {
           ...item,
+          extractedValue: editingOcrField.extractedValue,
           correctedValue: newValue,
           isLowConfidence: false,
-          issueNote: ocrCorrectionNote ? `Adjuster Note: ${ocrCorrectionNote}` : 'Adjuster verified & corrected field.'
+          issueNote: note ? `Adjuster Note: ${note}` : 'Adjuster verified & corrected field.'
         };
       }
       return item;
     });
 
-    // 2. Re-evaluate the rules engine
-    let updatedRules = [...activeClaim.rules];
+    // 3. Re-evaluate the rules engine
+    let updatedRules = [...(activeClaim.rules || [])];
     let updatedFlagSummary = activeClaim.flagSummary;
     const updatedIsFlagged = activeClaim.isFlagged;
     let newRecommendedPayout = activeClaim.recommendedPayout;
 
-    // If the driver name was corrected, check whether it now matches the policyholder.
-    if (fieldId === 'driver_name') {
+    // If a driver-name field was corrected, check whether it now matches the
+    // policyholder. These are the real schema field ids for the driver's name —
+    // one on the motor claim form, one on the licence itself.
+    const DRIVER_NAME_FIELDS = ['driver_full_name', 'driver_license_name'];
+    if (DRIVER_NAME_FIELDS.includes(fieldId) && activeClaim.policyholder) {
       if (newValue.toLowerCase().trim() === activeClaim.policyholder.toLowerCase().trim()) {
         updatedRules = updatedRules.filter(r => !r.title.includes('Unnamed Driver'));
         updatedRules.push({
@@ -370,18 +438,17 @@ const handleSaveLicenseFields = (licensePayload) => {
           title: '✓ Driver Identity Verified (OCR Corrected)',
           text: `Adjuster corrected driver name to "${newValue}", matching policyholder record exactly.`
         });
-
-        newRecommendedPayout = 55000;
-        setApprovedPayout(55000);
-        updatedFlagSummary = '🔴 Battery Excluded (Driver Name Verified)';
+        updatedFlagSummary = '🟢 Driver Identity Verified';
       }
     }
 
-    // 3. Write back to the in-memory database
+    // 4. Merge the rules re-evaluation onto the claim the server just returned.
+    //    Note the rules/payout changes are LOCAL ONLY — there is no endpoint for
+    //    them yet, so they are lost on refresh. Only the OCR value persists.
     setClaimsDb(prev => ({
       ...prev,
-      [selectedClaimId]: {
-        ...prev[selectedClaimId],
+      [claimId]: {
+        ...persistedClaim,
         ocrData: updatedOcrList,
         rules: updatedRules,
         flagSummary: updatedFlagSummary,
@@ -390,7 +457,7 @@ const handleSaveLicenseFields = (licensePayload) => {
       }
     }));
 
-    // 4. Log the correction in the activity feed
+    // 5. Log the correction in the activity feed
     setActivityLogs(prev => [
       {
         id: Date.now(),

@@ -39,9 +39,18 @@ frontend/src/
 │       ├── EditPayoutModal.jsx       Payout override form
 │       └── EmailModal.jsx            Policyholder decision-notice email preview
 │
-└── data/
-    └── claimRequirements.js          Required documents per claim type, the keyword map used to
-                                      match uploaded filenames, and documentMatchesRequirement()
+├── data/
+│   ├── claimRequirements.js          Required documents per claim type, the keyword map used to
+│   │                                 match uploaded filenames, and documentMatchesRequirement()
+│   └── ocrSchema.js                  The 16 ocrData sections, their fields and labels, and which
+│                                     uploaded document each section belongs to
+│
+└── services/
+    ├── api.js                        Every call to the backend: fetchClaims, uploadDocument,
+    │                                 replaceDocument, saveOcrCorrections, plus API_BASE and the
+    │                                 file-URL rewriting that makes /uploads/... paths resolve
+    └── ocrAdapter.js                 Converts ocrData between the backend's nested object and the
+                                      flat array the UI components expect
 ```
 
 ---
@@ -49,13 +58,18 @@ frontend/src/
 ## 2. How data flows
 
 ```
-      MongoDB
-         │  (backend/src/server.js — GET /api/claims)
-         ▼
+      MongoDB Atlas
+         ▲  │  (backend/src/server.js — API on http://localhost:5001)
+         │  ▼
+   ┌──────────────┐
+   │ services/    │  fetchClaims()      GET  /api/claims
+   │   api.js     │  uploadDocument()   POST /api/claims/:id/documents
+   │              │  replaceDocument()  PUT  /api/claims/:id/documents/:docId
+   └──────┬───────┘
+          ▼
    ┌───────────┐
-   │  App.jsx  │  fetch('http://localhost:5000/api/claims')
-   │           │  → array is keyed by claim.id into `claimsDb`
-   │  ALL      │  → holds all ~22 pieces of UI state
+   │  App.jsx  │  → array is keyed by claim.id into `claimsDb`
+   │  ALL      │  → holds all UI state
    │  STATE    │  → owns every handler that changes that state
    └─────┬─────┘
          │ props (state values + on* callbacks)
@@ -65,6 +79,11 @@ frontend/src/
          ▼
    dashboard/* · claims/* leaf components
 ```
+
+Document uploads are the one flow that goes **back up** to the database. After a
+successful upload the server returns the whole updated claim and `App.jsx` swaps its copy
+for that — so the screen always reflects what is actually stored. See
+`backend/BACKEND_GUIDE.md` for the full round trip.
 
 **The one rule to remember: `App.jsx` is the only component with state.** Everything under
 `components/` is presentational — it receives values and callbacks as props and renders. If you
@@ -148,15 +167,19 @@ identically to the previous version — apart from now actually running.
 These are **not** oversights — they were out of scope for a pure restructure and are the natural
 next steps.
 
-- **The API URL is hardcoded** to `http://localhost:5000/api/claims` in `App.jsx`. There is no Vite
-  proxy and no `VITE_API_URL` env var, so this breaks in any deployed environment.
-- **No seed data.** `backend/.env` does not exist and there is no seed script, so `/api/claims`
-  returns `[]` against a fresh database — the app will show "No claims found in the database."
-  Sample claim documents matching the expected shape live in `screen_V2.html`.
-- **Nothing is persisted.** Approve, deny, payout overrides, checklist ticks, OCR corrections and
-  uploads all mutate React state only, and are lost on refresh. The backend exposes no write routes
-  (`server.js` has only `GET /api/health` and `GET /api/claims`).
-- **Uploads use `URL.createObjectURL`** — blob URLs that die on refresh; no file is sent anywhere.
+- **The API URL is hardcoded** to `http://localhost:5001` in `services/api.js`. It is at least in
+  one place now, but there is still no Vite proxy and no `VITE_API_URL` env var, so this breaks in
+  any deployed environment.
+- **Everything except document uploads is still unpersisted.** Approve, deny, payout overrides,
+  checklist ticks and OCR corrections mutate React state only and are lost on refresh — there are
+  no endpoints for them yet. **Document uploads and replacements do persist** to MongoDB.
+- **Uploaded files live on the server's disk** (`backend/uploads/`), not in the database. Since the
+  Atlas database is shared with the team but that folder is not, teammates will see a document
+  listed and get a 404 for the file itself. See `backend/BACKEND_GUIDE.md` §1.
+- **OCR corrections lose the AI's original reading.** The schema stores one value per field, so
+  a correction overwrites what the AI extracted — the `extracted → corrected` distinction only
+  survives within a session. Also means no confidence scores. Needs a backend schema change; see
+  `backend/BACKEND_GUIDE.md` §9 for the suggested shape.
 - **The "AI analysis" is fake** — a 650 ms `setTimeout` in `runAiAnalysis`. Real OCR lives in the
   unconnected Python scripts (`gemini_ocr.py`, `policy_loader.py`); `backend/scripts/gemini_ocr.py`
   is an empty placeholder.
@@ -172,10 +195,12 @@ next steps.
 ## 6. Running it
 
 ```bash
-# Terminal 1 — API (needs MongoDB running and backend/.env with MONGO_URI)
+# Terminal 1 — API. Needs backend/.env with a MongoDB Atlas MONGO_URI.
+# See backend/BACKEND_GUIDE.md for how to get the connection string.
 cd backend
 npm install
-npm run dev          # http://localhost:5000
+npm run seed         # first time only: adds three sample claims
+npm run dev          # http://localhost:5001
 
 # Terminal 2 — UI
 cd frontend

@@ -13,7 +13,10 @@ import { useState, useEffect } from 'react';
  *  - runAiAnalysis: (reason) => void
  */
 export default function DriverLicenseEditor({ doc, ocrData = [], onClose, onSave, runAiAnalysis }) {
-  const docOcr = (ocrData || []).filter(f => f.sourceDoc === doc?.id);
+  // Array.isArray guard: ocrData is a nested object in the database and is
+  // flattened by services/ocrAdapter.js on the way in. This keeps the editor
+  // from throwing if it is ever handed the raw shape.
+  const docOcr = (Array.isArray(ocrData) ? ocrData : []).filter(f => f.sourceDoc === doc?.id);
 
   // Keys we expect / will save (driver_license_*)
   const fieldKeys = {

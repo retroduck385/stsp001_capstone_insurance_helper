@@ -7,7 +7,10 @@
 
 // documentpreview.jsx
 export default function DocumentPreview({ doc, ocrData, onView, onZoomImage, onEditOcr }) {
-  const docOcrFields = (ocrData || []).filter(field => field.sourceDoc === doc.id);
+  // Array.isArray, not `|| []`: claims loaded before services/ocrAdapter.js
+  // flattens them carry ocrData as a nested OBJECT, and .filter() on an object
+  // throws — blanking the whole screen right after an upload.
+  const docOcrFields = (Array.isArray(ocrData) ? ocrData : []).filter(field => field.sourceDoc === doc.id);
 
   return (
     <div className="border-t border-slate-200 bg-white p-3">

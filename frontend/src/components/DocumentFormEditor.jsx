@@ -20,7 +20,10 @@ import { useState, useEffect } from 'react';
  *   - damage_rows: [{ part, description, extent }]
  */
 export default function DocumentFormEditor({ doc, ocrData = [], onClose, onSave, runAiAnalysis, licenseOnly = false  }) {
-  const docOcrFields = (ocrData || []).filter(f => f.sourceDoc === doc?.id);
+  // Array.isArray guard: ocrData is a nested object in the database and is
+  // flattened by services/ocrAdapter.js on the way in. This keeps the editor
+  // from throwing if it is ever handed the raw shape.
+  const docOcrFields = (Array.isArray(ocrData) ? ocrData : []).filter(f => f.sourceDoc === doc?.id);
 
   // Expanded & ordered list of fields mapped from the Motor Claim Form.
   const FIELD_DEFINITIONS = [

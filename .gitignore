@@ -2,3 +2,9 @@
 venv/
 test_id.jpeg
 node_modules/
+
+# Uploaded claim documents — user data, not source code.
+backend/uploads/
+
+# Build output
+frontend/dist/
