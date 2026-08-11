@@ -35,6 +35,7 @@ class PolicyCrossChecker:
             police = ocr.get("policeReportOrAffidavit", {})
             repair = ocr.get("repairEstimate", {})
             damage = ocr.get("vehicleDamagePictures", {})
+            medical = ocr.get("medicalCertificate", {}) 
 
             text = f"""
             CLAIM
@@ -45,7 +46,6 @@ class PolicyCrossChecker:
             CLAIMANT
             Name: {claim_document.get("policyholder")}
             Driver Name: {claim_document.get("driverName")}
-
 
             VEHICLE
             Year: {motor.get("vehicle_year")}
@@ -86,7 +86,7 @@ class PolicyCrossChecker:
 
             return text.strip()
     
-    def search_multiple_collections(self, question, collections, top_k=8):
+    def search_multiple_collections(self, question, collections, top_k=5):
         # Embed the query once — reuse it across all collections
         response = client.models.embed_content(
                     model="gemini-embedding-001",
@@ -152,6 +152,7 @@ class PolicyCrossChecker:
             for r in results
         )
 
+
         # 4. Build prompt for Gemini
         prompt = f"""
     You are an insurance policy cross-checking assistant.
@@ -181,28 +182,33 @@ class PolicyCrossChecker:
     7. Explain your reasoning using the actual policy provisions.
     8. Calculate how much of the claim is covered, if applicable. (BE SURE TO INCLUDE THIS IF POSSIBLE)
 
-    Return your answer in the following format:
-
-    DECISION:
-    [Covered / Not Covered / Requires Further Review]
-
-    RELEVANT PROVISIONS:
-    [List the relevant provisions]
-
-    COVERAGE ANALYSIS:
-    [Explain how the policy applies to the claim]
-
-    EXCLUSIONS OR LIMITATIONS:
-    [List applicable exclusions or limitations, or "None identified"]
-
-    CONFIDENCE:
-    [High / Medium / Low]
+    {{
+    "Claim ID": "{claimID}",
+    "Policy Status": "Covered / Not Covered / Requires Further Review",
+    "Payout Amount": amount in PHP or 0 if not applicable,
+    "relevant_provisions": [
+        {{
+            "section": "Policy section",
+            "explanation": "Short explanation of why this provision is relevant"
+        }}
+    ],
+    "exclusions_or_limitations": [
+        {{
+            "section": "Policy section",
+            "explanation": "Short explanation of the applicable exclusion or limitation"
+        }}
+    ],
+    "confidence": "High / Medium / Low"
+}}
     """
 
         # 5. Ask Gemini
         response = client.models.generate_content(
             model="gemini-2.5-flash",
-            contents=prompt
+            contents=prompt,
+            config={
+                "temperature": 0,
+            }
         )
 
         return response.text
@@ -215,4 +221,4 @@ checker = PolicyCrossChecker(
     connection_string=os.getenv("MONGODB_URI"))
 
 claim_summary = checker.documentToString("CLM-2026-9001")
-print(checker.cross_check_claim(claimID="CLM-2026-9001", collections=["global_conditions_and_exceptions", "injury_policies", "loss_or_damage_policies"], top_k=8))
+print(checker.cross_check_claim(claimID="CLM-2026-9001", collections=["global_conditions_and_exceptions", "injury_policies", "loss_or_damage_policies"], top_k=5))

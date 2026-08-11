@@ -89,7 +89,7 @@ vehicle provided that—
 
 
     #split text
-    splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50, length_function=token_length, separators=["\n\n", "\n", ". ", " "])
+    splitter = RecursiveCharacterTextSplitter(chunk_size=600, chunk_overlap=50, length_function=token_length, separators=["\n\n", "\n", ". ", " "])
     chunks = splitter.split_text(text)
 
     ##embedding
@@ -112,7 +112,8 @@ vehicle provided that—
 
     ##store the chunks in collection
     store = RuleStore(connection_string = None, collection_name="loss_or_damage_policies")
-    return store.insert_chunks(embedded_chunks)
+    store.db.drop_collection(store.collection)
+    return store.insert_chunks(embedded_chunks, section = "damage_payments")
 
 
 
@@ -160,7 +161,7 @@ In the event that the Company should pay or be held liable to pay any claim or c
     """
 
     #split text
-    splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50, length_function=token_length, separators=["\n\n", "\n", ". ", " "])
+    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50, length_function=token_length, separators=["\n\n", "\n", ". ", " "])
     chunks = splitter.split_text(text)
 
     ##embedding
@@ -184,7 +185,7 @@ In the event that the Company should pay or be held liable to pay any claim or c
     ##store the chunks in collection
     store = RuleStore(connection_string = None, collection_name="global_conditions_and_exceptions")
     store.db.drop_collection(store.collection)
-    return store.insert_chunks(embedded_chunks)
+    return store.insert_chunks(embedded_chunks, section = "global_conditions_and_exceptions")
 
 
 def extract_injury_payments() -> dict:
@@ -265,7 +266,7 @@ Hearing – One Ear — 15,000.00
         """
     
         #split text
-    splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50, length_function=token_length, separators=["\n\n", "\n", ". ", " "])
+    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50, length_function=token_length, separators=["\n\n", "\n", ". ", " "])
     chunks = splitter.split_text(text)
     
     ##embedding
@@ -289,7 +290,7 @@ Hearing – One Ear — 15,000.00
     ##store the chunks in collection
     store = RuleStore(connection_string = None, collection_name="injury_policies")
     store.db.drop_collection(store.collection)
-    return store.insert_chunks(embedded_chunks)
+    return store.insert_chunks(embedded_chunks, section = "injury_payments")
    
 
 
@@ -322,5 +323,6 @@ if __name__ == "__main__":
     # inserted_chunks = extract_general_exceptions()
 
      store = RuleStore(connection_string=None, collection_name="injury_policies")
-     sample = store.collection.find_one({"embedding": {"$exists": True}})    
-     print(sample["chunk_id"], len(sample["embedding"]))
+     extract_damage_payments()
+     extract_global_conditions_and_general_exceptions()
+     extract_injury_payments()
