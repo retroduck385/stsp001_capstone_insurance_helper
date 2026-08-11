@@ -1,6 +1,43 @@
 import { useState, useEffect } from 'react';
 
 /**
+ * Reads the rows for one of the dynamic tables (affected persons, damage) out of
+ * an OCR field, whatever shape it happens to be in.
+ *
+ * `rawValue` is the authoritative one — services/ocrAdapter.js puts the real
+ * array there. `extractedValue` is a display summary ("1 row(s): Front Bumper")
+ * and must NOT be parsed. The JSON-string and newline branches below are
+ * fallbacks for data that predates the adapter.
+ *
+ *   ocrField   the flattened OCR item, or undefined
+ *   fromLine   builds a row from a single line of loose text
+ *   emptyRow   the blank row to show when there is nothing to read
+ */
+function readTableRows(ocrField, fromLine, emptyRow) {
+  if (!ocrField) return [emptyRow];
+
+  // Preferred path: the adapter already gives us a real array.
+  if (Array.isArray(ocrField.rawValue)) {
+    return ocrField.rawValue.length ? ocrField.rawValue : [emptyRow];
+  }
+
+  // Fallbacks only apply to strings — calling .split() or JSON.parse() on an
+  // array is what used to throw and blank the page.
+  const source = ocrField.correctedValue ?? ocrField.rawValue ?? ocrField.extractedValue;
+  if (typeof source !== 'string' || !source.trim()) return [emptyRow];
+
+  try {
+    const parsed = JSON.parse(source);
+    if (Array.isArray(parsed)) return parsed.length ? parsed : [emptyRow];
+  } catch {
+    // not JSON — fall through to treating it as loose text
+  }
+
+  const rows = source.split(/\n{1,2}/).map(s => s.trim()).filter(Boolean).map(fromLine);
+  return rows.length ? rows : [emptyRow];
+}
+
+/**
  * DocumentFormEditor (full version)
  *
  * - Left preview is static (no "View Full Document" button here).
@@ -148,35 +185,18 @@ export default function DocumentFormEditor({ doc, ocrData = [], onClose, onSave,
     setFields(buildInitialValues());
 
     // initialize affectedRows from OCR if present
-    const affectedField = docOcrFields.find(f => f.fieldId === 'affected_persons');
-    if (affectedField && affectedField.extractedValue) {
-      try {
-        const parsed = JSON.parse(affectedField.correctedValue ?? affectedField.extractedValue);
-        if (Array.isArray(parsed)) setAffectedRows(parsed);
-        else setAffectedRows([]);
-      } catch {
-        const rows = (affectedField.extractedValue || '').split('\n').filter(Boolean).map(line => ({ name: line, age: '', address: '', injured: false }));
-        setAffectedRows(rows.length ? rows : [{ name: '', age: '', address: '', injured: false }]);
-      }
-    } else {
-      setAffectedRows([{ name: '', age: '', address: '', injured: false }]);
-    }
+    setAffectedRows(readTableRows(
+      docOcrFields.find(f => f.fieldId === 'affected_persons'),
+      line => ({ name: line, age: '', address: '', injured: false }),
+      { name: '', age: '', address: '', injured: false }
+    ));
 
     // initialize damageRows from OCR if present
-    const damageField = docOcrFields.find(f => f.fieldId === 'description_of_damage');
-    if (damageField && damageField.extractedValue) {
-      try {
-        const parsed = JSON.parse(damageField.correctedValue ?? damageField.extractedValue);
-        if (Array.isArray(parsed)) setDamageRows(parsed);
-        else setDamageRows([]);
-      } catch {
-        const blocks = (damageField.extractedValue || '').split(/\n{1,2}/).filter(Boolean);
-        const rows = blocks.length ? blocks.map(b => ({ part: '', description: b, extent: '' })) : [{ part: '', description: '', extent: '' }];
-        setDamageRows(rows);
-      }
-    } else {
-      setDamageRows([{ part: '', description: '', extent: '' }]);
-    }
+    setDamageRows(readTableRows(
+      docOcrFields.find(f => f.fieldId === 'description_of_damage'),
+      block => ({ part: '', description: block, extent: '' }),
+      { part: '', description: '', extent: '' }
+    ));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc?.id, JSON.stringify(ocrData)]);
 
@@ -227,7 +247,13 @@ export default function DocumentFormEditor({ doc, ocrData = [], onClose, onSave,
 
   const handleSave = () => {
     const payload = {};
-    Object.keys(fields).forEach(k => { payload[k] = fields[k].value || ''; });
+    // The two table fields are excluded here and supplied as real arrays below.
+    // Their entry in `fields` holds a display summary ("1 row(s): Front Bumper"),
+    // which must never be saved over the actual array.
+    const TABLE_FIELDS = ['affected_persons', 'description_of_damage'];
+    Object.keys(fields)
+      .filter(k => !TABLE_FIELDS.includes(k))
+      .forEach(k => { payload[k] = fields[k].value || ''; });
     payload.affected_persons = affectedRows;
     payload.damage_rows = damageRows;
 

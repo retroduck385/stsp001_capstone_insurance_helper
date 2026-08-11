@@ -32,11 +32,42 @@ const isEmpty = (value) =>
   value === null || value === undefined || value === '' ||
   (Array.isArray(value) && value.length === 0);
 
-/** Dates arrive from JSON as ISO strings; show just the date part. */
+/** The first non-empty string in an object — used to label a table row. */
+function rowLabel(row) {
+  if (!row || typeof row !== 'object') return String(row ?? '');
+  const first = Object.values(row).find(v => typeof v === 'string' && v.trim());
+  return first || '';
+}
+
+/**
+ * Converts a stored value into something SAFE TO RENDER.
+ *
+ * This must never return an object or an array. React throws "Objects are not
+ * valid as a React child" and unmounts the entire tree — a blank white page with
+ * no message. Several ocrData fields are arrays (`description_of_damage`,
+ * `affected_persons`, `detectedParts`, `receiptNumbers`), so this is a real case,
+ * not a theoretical one.
+ *
+ * The structured original is kept separately as `rawValue` for the editors.
+ */
 function displayValue(value, field) {
   if (isEmpty(value)) return '';
-  if (field.isTable) return Array.isArray(value) ? value : [];
+
+  if (Array.isArray(value)) {
+    const isPrimitiveList = value.every(v => v === null || typeof v !== 'object');
+    if (isPrimitiveList) {
+      // e.g. detectedParts → "Front Bumper, Grille, Headlight Left"
+      return value.filter(v => v !== null && v !== '').join(', ');
+    }
+    // e.g. description_of_damage → "1 row(s): Front Bumper"
+    const labels = value.map(rowLabel).filter(Boolean);
+    return `${value.length} row(s)${labels.length ? `: ${labels.join(', ')}` : ''}`;
+  }
+
+  if (typeof value === 'object') return JSON.stringify(value);
+
   if (field.isDate && typeof value === 'string' && value.includes('T')) return value.split('T')[0];
+
   return value;
 }
 
@@ -93,7 +124,13 @@ export function flattenOcrData(claim) {
       items.push({
         fieldId: field.id,
         label: field.label,
+        // DISPLAY ONLY — always a primitive, safe to render. Never save this.
         extractedValue: displayValue(raw, field),
+        // THE REAL VALUE — arrays stay arrays. Editors and saves use this.
+        rawValue: raw,
+        // True for fields holding structured rows rather than a single value.
+        // The UI uses it to offer the table editor instead of a text box.
+        isTable: Boolean(field.isTable) || Array.isArray(raw),
         correctedValue: null,
         confidence: 'Not provided',   // the schema stores no confidence score
         isLowConfidence: false,

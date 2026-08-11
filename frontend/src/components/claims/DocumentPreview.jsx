@@ -147,16 +147,26 @@ export default function DocumentPreview({ doc, ocrData, onView, onZoomImage, onE
                   )}
                   <div className="text-[9px] text-slate-400">Confidence: {ocrItem.confidence || 'Not provided'}</div>
                 </div>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onEditOcr(ocrItem);
-                  }}
-                  className="flex-shrink-0 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold px-2.5 py-1.5 rounded"
-                >
-                  ✏️ Edit OCR
-                </button>
+                {/* Table fields hold rows, not a single value. The OCR correction
+                    modal is a one-line text box, so saving through it would
+                    overwrite the array with a string. Send them to Edit Form,
+                    which has the proper row editor. */}
+                {ocrItem.isTable ? (
+                  <span className="flex-shrink-0 text-[9px] text-slate-400 border border-slate-200 rounded px-2 py-1 text-center leading-tight">
+                    Use<br />Edit Form
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEditOcr(ocrItem);
+                    }}
+                    className="flex-shrink-0 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold px-2.5 py-1.5 rounded"
+                  >
+                    ✏️ Edit OCR
+                  </button>
+                )}
               </div>
             ))}
           </div>

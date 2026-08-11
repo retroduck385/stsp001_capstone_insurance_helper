@@ -205,6 +205,42 @@ relative URL resolves to `localhost:5173/uploads/scan.pdf` and 404s.
 `normaliseClaim()` in `services/api.js` rewrites them to absolute URLs the moment data
 arrives, in one place, so no component has to think about it.
 
+### `extractedValue` is for display; `rawValue` is the real thing
+
+Each item the adapter produces carries the same value twice, and mixing them up causes
+real bugs:
+
+| Property | Type | Use it for |
+|---|---|---|
+| `extractedValue` | **always a primitive** | rendering on screen. Never save it. |
+| `rawValue` | the original (array / number / string) | editors, and anything you save |
+| `isTable` | boolean | fields holding rows rather than one value |
+
+Some OCR fields are arrays — `description_of_damage`, `affected_persons`,
+`detectedParts`, `receiptNumbers`. **React cannot render an array of objects**: it throws
+*"Objects are not valid as a React child"* and unmounts the whole tree, leaving a blank
+white page with no message.
+
+This actually happened. `description_of_damage` on `CLM-2026-9001` is
+`[{"part":"Front Bumper","extent":"Dented"}]`, and the adapter originally passed it
+straight through to JSX. `displayValue()` in `services/ocrAdapter.js` now turns arrays
+into readable text (`"1 row(s): Front Bumper"`) while `rawValue` keeps the array intact
+for the form editor's row table.
+
+Two consequences worth remembering:
+
+- The form editor reads `rawValue` for its tables and excludes table fields from its
+  scalar payload, so a display summary can never be saved over a real array.
+- `DocumentPreview` hides "✏️ Edit OCR" for table fields, because the correction modal is
+  a one-line text box and saving through it would replace the array with a string.
+
+### There is an error boundary — read it when things break
+
+`components/ErrorBoundary.jsx` wraps the app in `main.jsx`. If a render error happens, you
+get the error message and component stack **on the page** instead of a blank screen. The
+crash above cost far more time than it should have precisely because there was no
+boundary — the page just went white.
+
 ### How OCR fields find their document
 
 An OCR section links to a document by matching keywords against that document's
@@ -228,8 +264,14 @@ landed rather than trusting the API response.
 |---|---|---|
 | Component rendering | 16 | Every extracted component across all three claim statuses, empty documents, no OCR data, all five modals |
 | Upload / replace API | 39 | Persistence, `docsCount` repair, replace semantics, old-file deletion, orphan cleanup, 404/413/415 |
-| `ocrData` adapter | 38 | Section mapping, flattening, dates, numbers, tables, malformed input, the changed-fields-only filter |
+| `ocrData` adapter | 49 | Section mapping, flattening, dates, numbers, tables, malformed input, the changed-fields-only filter, and the guard that no unrenderable value escapes |
 | OCR PATCH endpoint | 19 | Field-level updates, sibling preservation, multi-section patches, error handling |
+| Component rendering with **live** data | 11 | `DocumentPreview`, both editors and the full workspace rendered with the real claim from Atlas — including the form editor open |
+
+The last suite exists because of a bug that got through: the earlier tests confirmed the
+data reaching the browser was correct, but never rendered it. The value was right; it just
+wasn't renderable. Rendering the real components against real data is what catches that
+class of problem.
 
 **Live verification against the team's Atlas cluster:**
 
