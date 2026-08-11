@@ -65,9 +65,17 @@ export default function ClaimRequirements({
           <div className="grid grid-cols-1 gap-2">
             {requirements.map((req, idx) => {
               const supplied = documentMatchesRequirement(req, activeClaim.documents);
-              const checked = isChecklistChecked(req);
-              const isConditional = req.toLowerCase().includes('(if ') || req.toLowerCase().includes('(death claim only)');
-              const matchedDoc = (activeClaim.documents || []).find(doc => documentMatchesRequirement(req, [doc]));
+const checked = isChecklistChecked(req);
+
+const isConditional =
+  req.toLowerCase().includes('(if ') ||
+  req.toLowerCase().includes('(death claim only)');
+
+const matchedDoc = (activeClaim.documents || []).find(
+  doc => documentMatchesRequirement(req, [doc])
+);
+
+
 
               // compute license/receipt detection here (inside the map callback)
               const reqText = (req || '').toLowerCase();

@@ -300,21 +300,20 @@ const handleSaveLicenseFields = async (licensePayload) => {
     const existingDoc = targetDocId
       ? (claimsDb[claimId]?.documents || []).find(doc => doc.id === targetDocId)
       : null;
-    const documentType = existingDoc?.documentType || uploadDocumentType || '';
+   const documentType = existingDoc?.documentType || uploadDocumentType || '';
 
-    if (!documentType) {
-      alert('This upload must be started from a specific claim requirement.');
-      event.target.value = '';
-      return;
-    }
+if (!documentType) {
+  alert('This upload must be started from a specific claim requirement.');
+  event.target.value = '';
+  return;
+}
 
-    setIsAnalyzing(true); // drives the "⚙️ AI Analyzing..." badge while in flight
+setIsAnalyzing(true);
 
-    try {
+try {
       const updatedClaim = isReplacing
         ? await replaceDocument(claimId, targetDocId, file, documentType)
         : await uploadDocument(claimId, file, documentType);
-
       // The database is the source of truth — take the server's version wholesale.
       setClaimsDb(prev => ({ ...prev, [claimId]: updatedClaim }));
 

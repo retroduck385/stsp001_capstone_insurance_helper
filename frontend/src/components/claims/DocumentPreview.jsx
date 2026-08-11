@@ -1,3 +1,4 @@
+
 /**
  * Inline preview of a single submitted document, rendered directly beneath the
  * requirement it satisfies. Renders one of four branches based on doc.type
@@ -10,7 +11,16 @@ export default function DocumentPreview({ doc, ocrData, onView, onZoomImage, onE
   // Array.isArray, not `|| []`: claims loaded before services/ocrAdapter.js
   // flattens them carry ocrData as a nested OBJECT, and .filter() on an object
   // throws — blanking the whole screen right after an upload.
-  const docOcrFields = (Array.isArray(ocrData) ? ocrData : []).filter(field => field.sourceDoc === doc.id);
+  const allDocOcrFields = (Array.isArray(ocrData) ? ocrData : [])
+  .filter(field => field.sourceDoc === doc.id);
+
+const usesDedicatedEditor =
+  doc.documentType === 'Completed Motor Claim Form' ||
+  doc.documentType === "Driver's License";
+
+const docOcrFields = usesDedicatedEditor
+  ? allDocOcrFields.slice(0, 2)
+  : allDocOcrFields;
 
   return (
     <div className="border-t border-slate-200 bg-white p-3">
@@ -36,29 +46,14 @@ export default function DocumentPreview({ doc, ocrData, onView, onZoomImage, onE
       </div>
 
       {doc.type === 'pdf_document' && (
-        <div className="border border-slate-300 rounded-lg overflow-hidden bg-slate-100 h-64">
-          <object
-            data={doc.fileUrl}
-            type="application/pdf"
-            className="w-full h-full"
-          >
-            <div className="h-full flex flex-col items-center justify-center gap-2 bg-white p-4 text-center">
-              <span className="text-2xl">📄</span>
-              <p className="text-[10px] font-bold text-slate-700">
-                PDF preview is unavailable in this browser.
-              </p>
-              <a
-                href={doc.fileUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="bg-blue-600 text-white px-3 py-1.5 rounded text-[10px] font-bold"
-              >
-                Open PDF
-              </a>
-            </div>
-          </object>
-        </div>
-      )}
+  <div className="border border-slate-300 rounded-lg overflow-hidden bg-slate-100 h-64">
+    <iframe
+      src={doc.fileUrl}
+      title={doc.fileName || doc.title || "PDF Preview"}
+      className="w-full h-full border-0"
+    />
+  </div>
+)}
 
       {(doc.type === 'image_card' || doc.type === 'uploaded_image') && (
         <div
@@ -129,51 +124,82 @@ export default function DocumentPreview({ doc, ocrData, onView, onZoomImage, onE
         </div>
       )}
 
-      {/* OCR EDITOR FOR THIS DOCUMENT */}
-      <div className="mt-3 pt-3 border-t border-slate-200">
-        <div className="mb-2">
-          <div className="text-[10px] font-bold text-slate-700 uppercase tracking-wide">AI OCR Extraction</div>
-          <div className="text-[9px] text-slate-500">Review and correct AI-extracted values from this document.</div>
-        </div>
-        {docOcrFields.length > 0 ? (
-          <div className="space-y-1.5">
-            {docOcrFields.map((ocrItem) => (
-              <div key={ocrItem.fieldId} className="flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2">
-                <div className="min-w-0">
-                  <div className="text-[10px] font-bold text-slate-700 truncate">{ocrItem.label}</div>
-                  <div className="text-[10px] font-mono text-slate-600 truncate">AI: {ocrItem.extractedValue}</div>
-                  {ocrItem.correctedValue && (
-                    <div className="text-[10px] font-mono text-emerald-700 truncate">✓ Verified: {ocrItem.correctedValue}</div>
-                  )}
-                  <div className="text-[9px] text-slate-400">Confidence: {ocrItem.confidence || 'Not provided'}</div>
-                </div>
-                {/* Table fields hold rows, not a single value. The OCR correction
-                    modal is a one-line text box, so saving through it would
-                    overwrite the array with a string. Send them to Edit Form,
-                    which has the proper row editor. */}
-                {ocrItem.isTable ? (
-                  <span className="flex-shrink-0 text-[9px] text-slate-400 border border-slate-200 rounded px-2 py-1 text-center leading-tight">
-                    Use<br />Edit Form
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onEditOcr(ocrItem);
-                    }}
-                    className="flex-shrink-0 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold px-2.5 py-1.5 rounded"
-                  >
-                    ✏️ Edit OCR
-                  </button>
-                )}
+{/* OCR EDITOR FOR THIS DOCUMENT */}
+<div className="mt-3 pt-3 border-t border-slate-200">
+  <div className="mb-2">
+    <div className="text-[10px] font-bold text-slate-700 uppercase tracking-wide">
+      AI OCR Extraction
+    </div>
+
+    <div className="text-[9px] text-slate-500">
+      {usesDedicatedEditor
+        ? 'Review and correct AI-extracted values from this document using the Edit Form.'
+        : 'Review and correct AI-extracted values from this document.'}
+    </div>
+  </div>
+
+  {docOcrFields.length > 0 ? (
+    <div className="space-y-1.5">
+      {docOcrFields.map((ocrItem) => (
+        <div
+          key={ocrItem.fieldId}
+          className="flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2"
+        >
+          <div className="min-w-0">
+            <div className="text-[10px] font-bold text-slate-700 truncate">
+              {ocrItem.label}
+            </div>
+
+            <div className="text-[10px] font-mono text-slate-600 truncate">
+              AI: {ocrItem.extractedValue}
+            </div>
+
+            {ocrItem.correctedValue && (
+              <div className="text-[10px] font-mono text-emerald-700 truncate">
+                ✓ Verified: {ocrItem.correctedValue}
               </div>
-            ))}
+            )}
+
+            <div className="text-[9px] text-slate-400">
+              Confidence: {ocrItem.confidence || 'Not provided'}
+            </div>
           </div>
-        ) : (
-          <div className="text-[10px] text-slate-400 bg-slate-50 border border-slate-200 rounded-lg p-2">No OCR fields are currently associated with this document.</div>
-        )}
-      </div>
+
+          {/* Dedicated editors are used for Motor Claim Form
+              and Driver's License. */}
+          {doc.documentType === 'Completed Motor Claim Form' ? (
+            <span className="flex-shrink-0 text-[9px] text-indigo-600 border border-indigo-200 bg-indigo-50 rounded px-2 py-1 text-center leading-tight font-bold">
+              Use<br />Edit Form
+            </span>
+          ) : doc.documentType === "Driver's License" ? (
+            <span className="flex-shrink-0 text-[9px] text-violet-600 border border-violet-200 bg-violet-50 rounded px-2 py-1 text-center leading-tight font-bold">
+              Use<br />Edit License
+            </span>
+          ) : ocrItem.isTable ? (
+            <span className="flex-shrink-0 text-[9px] text-slate-400 border border-slate-200 rounded px-2 py-1 text-center leading-tight">
+              Use<br />Edit Form
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onEditOcr(ocrItem);
+              }}
+              className="flex-shrink-0 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold px-2.5 py-1.5 rounded"
+            >
+              ✏️ Edit OCR
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  ) : (
+    <div className="text-[10px] text-slate-400 bg-slate-50 border border-slate-200 rounded-lg p-2">
+      No OCR fields are currently associated with this document.
+    </div>
+  )}
+</div>
     </div>
   );
 }
