@@ -105,40 +105,140 @@ function EvidenceLine({ evidence, onOpenClaim }) {
 }
 
 /**
+ * Turns one recorded tool call into a line an adjuster can read.
+ *
+ * The trail is the module's evidence that the AI did something rather than
+ * merely said something, so it is written in plain language — "looked up
+ * DEMO-HIST-0003", not "lookupPriorClaim({claimId:...})".
+ */
+function describeStep(step) {
+  const args = step.args || {};
+
+  switch (step.tool) {
+    case 'lookupPriorClaim':
+      return {
+        action: `Looked up prior claim ${args.claimId}`,
+        result: step.refused
+          ? step.result.error
+          : `${step.result.status} · ₱${Number(step.result.claimedAmount || 0).toLocaleString()} · filed ${step.result.filedDate}` +
+            (step.result.detectedParts?.length ? ` · ${step.result.detectedParts.join(', ')}` : '')
+      };
+    case 'listClaimDocuments':
+      return {
+        action: 'Checked which documents are on file',
+        result: step.refused
+          ? step.result.error
+          : step.result.documentCount === 0
+            ? 'No documents on file'
+            : `${step.result.documentCount} document(s): ${step.result.documents.map(d => d.documentType).filter(Boolean).join(', ')}`
+      };
+    case 'getRuleDefinition':
+      return {
+        action: `Read the definition of ${args.code}`,
+        result: step.refused ? step.result.error : `${step.result.label} · ${step.result.severity}`
+      };
+    default:
+      return { action: step.tool, result: step.refused ? step.result.error : 'done' };
+  }
+}
+
+/**
+ * What the model actually did before it wrote.
+ *
+ * This section is the difference between claiming the module is agentic and
+ * showing it. Nothing here is scripted: the model chose which tools to call,
+ * with which arguments, and when it had read enough — so two claims with the
+ * same indicators can produce different investigations.
+ *
+ * Refused calls are rendered as loudly as successful ones. lookupPriorClaim is
+ * fenced to the claim ids the RULES cited, and an attempt to reach past that
+ * fence is something the adjuster reading this card is entitled to see.
+ */
+function InvestigationTrail({ trail }) {
+  if (!trail?.length) return null;
+
+  return (
+    <details className="rounded-lg border border-violet-200 bg-white/70">
+      <summary className="cursor-pointer text-[10px] font-bold text-violet-600 uppercase tracking-wide px-2.5 py-2 hover:text-violet-800">
+        Investigation · {trail.length} step{trail.length === 1 ? '' : 's'} taken by the AI
+      </summary>
+
+      <ol className="px-2.5 pb-2.5 space-y-1.5">
+        {trail.map((step) => {
+          const { action, result } = describeStep(step);
+          return (
+            <li key={step.step} className="flex gap-2 text-[10px] leading-relaxed">
+              <span className="font-mono text-violet-400 flex-shrink-0">{step.step}</span>
+              <span className="min-w-0">
+                <span className={`font-semibold ${step.refused ? 'text-amber-700' : 'text-slate-700'}`}>
+                  {action}
+                  {step.refused && ' — refused'}
+                </span>
+                <span className="block text-slate-500 font-mono break-words">↳ {result}</span>
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+
+      <p className="px-2.5 pb-2.5 text-[10px] text-slate-400 italic">
+        The AI chose these steps itself. It can read the evidence behind a signal; it cannot
+        change the assessment.
+      </p>
+    </details>
+  );
+}
+
+/**
  * The AI Analysis panel.
  *
- * When the model was unavailable this renders the reason and NOTHING else.
- * There is deliberately no fallback narrative: a paragraph the model did not
- * write, presented where the model's writing goes, would be indistinguishable
- * from AI reasoning to the person reading it. Guardrail 5 — the module degrades
- * to the rule output plus a clear notice, never to a plausible-sounding
- * substitute.
+ * When the model was unavailable this renders the reason and NOTHING else
+ * beyond whatever investigation it managed before failing. There is
+ * deliberately no fallback narrative: a paragraph the model did not write,
+ * presented where the model's writing goes, would be indistinguishable from AI
+ * reasoning to the person reading it. Guardrail 5 — the module degrades to the
+ * rule output plus a clear notice, never to a plausible-sounding substitute.
  */
 function AiAnalysis({ ai }) {
   if (!ai) return null;
 
   if (ai.unavailable) {
     return (
-      <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
-        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">AI Analysis</div>
+      <div className="p-3 rounded-lg border border-slate-200 bg-slate-50 space-y-2">
+        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">AI Analysis</div>
         <p className="text-[11px] text-slate-500 italic">
           AI reasoning unavailable — {ai.reason} The indicators below are unaffected and were
           produced by the rule engine.
         </p>
+        {/* A run that failed after two useful lookups should still show them. */}
+        <InvestigationTrail trail={ai.trail} />
       </div>
     );
   }
 
   return (
     <div className="p-3.5 rounded-lg border border-violet-200 bg-gradient-to-br from-violet-50 to-white space-y-2.5">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="text-[10px] font-bold text-violet-500 uppercase tracking-wide">✨ AI Analysis</div>
-        {ai.model && (
-          <span className="text-[9px] font-mono bg-white text-violet-500 border border-violet-200 px-1.5 py-0.5 rounded">
-            {ai.model}
-          </span>
-        )}
+        <div className="flex items-center gap-1">
+          {ai.toolCallCount > 0 && (
+            <span
+              className="text-[9px] font-mono bg-violet-100 text-violet-700 border border-violet-300 px-1.5 py-0.5 rounded"
+              title="The AI called tools to examine the evidence before writing this"
+            >
+              {ai.toolCallCount} tool call{ai.toolCallCount === 1 ? '' : 's'}
+            </span>
+          )}
+          {ai.model && (
+            <span className="text-[9px] font-mono bg-white text-violet-500 border border-violet-200 px-1.5 py-0.5 rounded">
+              {ai.model}
+            </span>
+          )}
+        </div>
       </div>
+
+      {/* Shown BEFORE the analysis, because it is what produced the analysis. */}
+      <InvestigationTrail trail={ai.trail} />
 
       <p className="text-xs text-slate-800 leading-relaxed font-medium">{ai.summary}</p>
 

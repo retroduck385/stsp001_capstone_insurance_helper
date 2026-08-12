@@ -136,15 +136,21 @@ function countWithin(ctx, days) {
 // THE RULES
 // ---------------------------------------------------------------------------
 //
-// Each returns null (did not fire) or { severity, detail, evidence }. Severity
-// is per-outcome rather than per-rule because FR-02a's tiers differ in what
-// they justify — see the note on that rule.
+// Each returns null (did not fire) or { severity, detail, evidence }. The
+// OUTCOME's severity is what the runner uses, because FR-02a's tiers differ in
+// what they justify — see the note on that rule.
+//
+// The `severity` declared on the rule object itself is documentation: it is what
+// getRuleDefinition() in fraudTools.js reports to the reasoning model when it
+// asks what a rule means. FR-02a is declared 'tiered' because it genuinely
+// varies; every other rule here always returns the severity it declares.
 
 export const HISTORY_RULES = [
   {
     code: 'FR-02a',
     label: 'Elevated Claim Frequency',
     category: 'Claim History',
+    severity: 'tiered',
     requires: [
       ['filedDate', 'the date this claim was filed'],
       ['identityKey', 'an identifier to match the claimant on']
@@ -223,6 +229,7 @@ export const HISTORY_RULES = [
     code: 'FR-02b',
     label: 'Rapid Succession',
     category: 'Claim History',
+    severity: 'indicator',
     requires: [
       ['filedDate', 'the date this claim was filed'],
       ['identityKey', 'an identifier to match the claimant on']
@@ -258,6 +265,7 @@ export const HISTORY_RULES = [
     code: 'FR-02c',
     label: 'Elevated Cumulative Amount',
     category: 'Claim History',
+    severity: 'observation',
     requires: [
       ['claimedAmount', 'the amount claimed'],
       ['identityKey', 'an identifier to match the claimant on']
@@ -292,6 +300,7 @@ export const HISTORY_RULES = [
     code: 'FR-02d',
     label: 'Frequency Combined With Amount',
     category: 'Claim History',
+    severity: 'indicator',
     requires: [
       ['filedDate', 'the date this claim was filed'],
       ['claimedAmount', 'the amount claimed'],
@@ -326,6 +335,7 @@ export const HISTORY_RULES = [
     code: 'FR-02e',
     label: 'Repeated Damage Area',
     category: 'Claim History',
+    severity: 'indicator',
     requires: [
       ['currentParts', 'the parts listed on this claim\'s repair estimate'],
       ['identityKey', 'an identifier to match the claimant on']
@@ -359,6 +369,7 @@ export const HISTORY_RULES = [
     code: 'FR-02f',
     label: 'Prior Denied Claim',
     category: 'Claim History',
+    severity: 'indicator',
     requires: [
       ['identityKey', 'an identifier to match the claimant on']
     ],

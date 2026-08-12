@@ -18,6 +18,7 @@ import 'dotenv/config';
 import mongoose from 'mongoose';
 import { buildFraudAdvisory } from '../src/services/fraudAdvisor.js';
 import { findClaimantHistory, resolveClaimantKey } from '../src/services/claimantIdentity.js';
+import { buildFraudTools, citedClaimIds } from '../src/services/fraudTools.js';
 
 const claimSchema = new mongoose.Schema({}, { strict: false, id: false, collection: 'claims' });
 mongoose.model('Claim', claimSchema);
@@ -177,6 +178,54 @@ async function run() {
     check('the AI supplied the required risk framing', withAi.every(ai => Boolean(ai.riskFraming)));
   } else {
     console.log('  note  the AI was unavailable on this run — rule output above is unaffected, which is the point');
+  }
+
+  // -------------------------------------------------------------------------
+  console.log('\nTHE AGENT — the model investigates, it does not decide');
+  // -------------------------------------------------------------------------
+  // The tools are exercised directly rather than through a model, because
+  // asserting on what an LLM chose to call would make this suite flaky. What
+  // must be deterministic is the FENCE, and that is what is tested here.
+  const tools = buildFraudTools(Claim, juan, a1);
+  const cited = citedClaimIds(a1);
+
+  check('the fence is built from the claim ids the rules cited', cited.size === 4, [...cited].join(', '));
+
+  const permitted = await tools.execute('lookupPriorClaim', { claimId: 'DEMO-HIST-0003' });
+  check('a cited prior claim can be looked up', !permitted.error && permitted.id === 'DEMO-HIST-0003');
+
+  const refusals = [
+    ['an uncited real claim', 'CLM-2026-9001'],
+    ["another claimant's claim", 'DEMO-2026-0002'],
+    ['a hallucinated claim id', 'NOPE-9999']
+  ];
+  for (const [why, claimId] of refusals) {
+    const result = await tools.execute('lookupPriorClaim', { claimId });
+    check(`${why} is refused`, Boolean(result.error), claimId);
+  }
+
+  check(
+    'an unknown tool name is refused rather than throwing',
+    Boolean((await tools.execute('deleteEverything', {})).error)
+  );
+
+  // Guardrail 6 on the SECOND channel. DEMO-HIST-0002 is the record with the
+  // misspelled name, so if any identity field could leak through a tool, this
+  // is the call that would show it.
+  const toolBlob = JSON.stringify(await tools.execute('lookupPriorClaim', { claimId: 'DEMO-HIST-0002' }));
+  const leaked = ['Jan', 'Juan', 'Dela Cruz', 'JDC', 'example.com', 'approvedPayout']
+    .filter(term => toolBlob.includes(term));
+  check('tool results carry no identity and no payout', leaked.length === 0, leaked.join(', '));
+
+  // Guardrail 5, the load-bearing one: whatever the agent did, the state was
+  // decided before it ran and nothing it returns can move it.
+  const aiTrail = a1.ai?.trail || [];
+  check(
+    'the advisory state is unchanged by the agent',
+    a1.state === (a1.indicators.length > 0 ? 'NOT_CLEARED' : 'CLEARED')
+  );
+  if (aiTrail.length > 0) {
+    console.log(`  note  the agent made ${aiTrail.length} tool call(s) on 0001: ${aiTrail.map(t => t.tool).join(', ')}`);
   }
 
   // -------------------------------------------------------------------------

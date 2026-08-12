@@ -179,11 +179,22 @@ export async function buildFraudAdvisory(ClaimModel, claim) {
   // 5. EXPLAIN — only when there is something to explain. A CLEARED advisory
   //    has no indicators for the AI to reason about, so calling it would burn
   //    quota to produce a paragraph saying nothing happened.
+  //
+  //    Note what is passed and when. The advisory handed over is COMPLETE:
+  //    state, concern and indicators are all settled above, and the reasoner
+  //    receives them as facts to explain. It is also given the model and the
+  //    claim, but only so its tools can read — lookupPriorClaim is fenced to
+  //    the claim ids the rules cited, and no tool writes anything. The agent
+  //    investigates; it does not decide. See fraudTools.js.
   if (state === 'NOT_CLEARED') {
-    advisory.ai = await generateFraudReasoning(advisory, {
-      claimType: claim?.claimType || null,
-      claimedAmount: claim?.claimedAmount ?? null
-    });
+    advisory.ai = await generateFraudReasoning(
+      advisory,
+      {
+        claimType: claim?.claimType || null,
+        claimedAmount: claim?.claimedAmount ?? null
+      },
+      { ClaimModel, claim }
+    );
   }
 
   return advisory;

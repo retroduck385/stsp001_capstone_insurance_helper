@@ -1,36 +1,43 @@
 // services/fraudReasoner.js
 //
-// THE REASONING LAYER
+// THE REASONING AGENT
 // =============================================================================
 // Takes a finished advisory — state already decided, indicators already fixed —
-// and asks Gemini to explain it to the agent in plain language, offer the
-// innocent reading, and suggest what to actually go and check.
+// and runs a tool-using model over it. The model may look up the prior claims
+// the rules cited, check which documents are on file, and read what a rule
+// actually tests, before writing its analysis for the agent.
 //
 //
-// ── WHAT THIS IS NOT ALLOWED TO DO ──────────────────────────────────────────
-// It cannot change `state`. It cannot add or remove an indicator. It cannot
-// introduce a fact it was not given. Those are not conventions of this file,
-// they are structural: buildFraudAdvisory() computes the state and freezes the
+// ── WHAT IS AND IS NOT AGENTIC HERE ─────────────────────────────────────────
+// Agentic: the model chooses which tools to call, with which arguments, in
+// which order, and when it has read enough to stop. Nothing in this file
+// scripts that sequence. Two claims with the same indicators can produce
+// different investigations.
+//
+// Not agentic, deliberately: the model has no authority over the outcome. It
+// cannot change `state`, cannot add or remove an indicator, and cannot write
+// anything anywhere. buildFraudAdvisory() computes the state and freezes the
 // indicator list BEFORE calling this, and the only thing it does with the
 // return value is hang it off `advisory.ai`.
 //
-// The reason for that boundary is worth stating plainly, because it is the
-// interesting part of the design: an LLM that can flip a claim's state on a
-// hallucination can accuse a real person. So the model is given a decision
-// somebody else already made and asked to explain it well.
+// The reason for that boundary is the whole argument of the module: an LLM that
+// can flip a claim's state on a hallucination can accuse a real person. So the
+// model is given a decision somebody else already made, the means to look into
+// the evidence behind it, and the job of explaining it well.
 //
 //
 // ── WHAT IS NEVER SENT ──────────────────────────────────────────────────────
 // No name, address, barangay, age, sex, nationality, occupation, income, source
-// of funds, government ID number, plate number or email leaves this file. See
-// buildPromptPayload() below, which rebuilds the payload field by field from an
-// allowlist rather than deleting fields from the advisory.
+// of funds, government ID number, plate number or email leaves this file — not
+// in the opening prompt, and not in any tool result. There are two independent
+// locks: buildPromptPayload() below rebuilds the prompt from an allowlist, and
+// fraudTools.js restricts what every tool may return.
 //
-// That is deliberate. Blacklisting ("delete claim.policyholder") fails silently
-// the moment a new identifying field is added upstream; an allowlist fails
-// closed. claimantIdentity.js already restricts what the rules can see, and
-// this file restricts it again on its own account rather than trusting its
-// caller — the two are independent locks on the same door.
+// Both are allowlists, not blacklists. Deleting fields ("delete claim.
+// policyholder") fails silently the moment a new identifying field appears
+// upstream; rebuilding from a named list fails closed.
+
+import { buildFraudTools } from './fraudTools.js';
 
 /** Matches the model backend/scripts/gemini_ocr.py already uses for OCR. */
 export const REASONER_MODEL = 'gemini-3.6-flash';
@@ -39,6 +46,17 @@ const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models
 
 /** Fail rather than hang the approve flow behind a slow model. */
 const REQUEST_TIMEOUT_MS = 30000;
+
+/**
+ * How many times the model may come back for more before it must write.
+ *
+ * A cap rather than a target — most claims resolve in one or two. It exists so
+ * a model that loops (asking for the same claim repeatedly, or alternating
+ * between two tools) burns a bounded amount of quota and still produces a
+ * result. On hitting the cap the loop asks once more with tools withdrawn, so
+ * the outcome is a written analysis rather than a timeout.
+ */
+const MAX_TOOL_TURNS = 6;
 
 /**
  * The system instruction. The guardrails are stated to the model in the same
@@ -50,8 +68,8 @@ You are assisting a licensed Philippine motor insurance claims agent. You are NO
 making a decision and you are NOT determining whether fraud occurred.
 
 You may ONLY reason about the indicators supplied below. You must not invent,
-infer, or mention any fact that is not in the supplied data. If the data is thin,
-say the data is thin.
+infer, or mention any fact that is not in the supplied data or returned by a tool.
+If the data is thin, say the data is thin.
 
 Frequent claims are NOT fraud. A policyholder may have many legitimate claims and
 simply be high-risk. Fraud requires intentional deception for financial gain, and
@@ -68,7 +86,22 @@ Do not suggest contacting law enforcement.
 You have not been told who the claimant is, and you must not ask or speculate.
 Refer to them only as "the claimant".
 
-Respond with a single JSON object and nothing else:
+BEFORE YOU WRITE, INVESTIGATE.
+You have tools. Use them when they would make your analysis more specific:
+  - lookupPriorClaim, to examine a prior claim a rule cited as evidence
+  - listClaimDocuments, to check what is actually on file before you suggest
+    obtaining or re-reading a document
+  - getRuleDefinition, to confirm what a rule tests before you explain why it fired
+Call only the tools that will change what you write. Two or three well-chosen
+calls beat six. When you have enough, stop calling tools and write your analysis.
+
+The rule engine has already decided this claim's state. You cannot change it, and
+you must not argue for a different one. If something you find in a tool result
+sits awkwardly with an indicator, say so plainly in your reasoning — that is
+useful to the agent — but do not treat it as overturning the finding.
+
+When you are finished investigating, respond with a single JSON object and
+nothing else:
 {
   "summary": "2 to 3 sentences telling the agent what was found and what it means for their next step",
   "reasoning": "a short paragraph explaining how the indicators relate to each other",
@@ -76,6 +109,10 @@ Respond with a single JSON object and nothing else:
   "suggestedChecks": ["3 to 5 concrete actions"]
 }
 `.trim();
+
+// ---------------------------------------------------------------------------
+// THE OPENING PAYLOAD
+// ---------------------------------------------------------------------------
 
 /**
  * Rebuilds the prompt payload from an allowlist.
@@ -90,8 +127,8 @@ function buildPromptPayload(advisory, claimContext) {
     label: hit.label,
     category: hit.category,
     detail: hit.detail,
-    // Evidence is stringified rather than passed through, so nested objects
-    // added upstream cannot smuggle a field past this allowlist.
+    // Evidence is rebuilt key by key rather than passed through, so nested
+    // objects added upstream cannot smuggle a field past this allowlist.
     evidence: summariseEvidence(hit.evidence)
   });
 
@@ -126,7 +163,9 @@ function buildPromptPayload(advisory, claimContext) {
  * Flattens an evidence block to the non-identifying facts a rule cited.
  *
  * Claim ids are kept — they are references to claims, not to a person, and the
- * reasoning is far more useful when it can say which prior claim it means.
+ * reasoning is far more useful when it can say which prior claim it means. They
+ * are also what lookupPriorClaim is fenced to, so the model needs to see them
+ * in order to know what it is allowed to ask for.
  */
 function summariseEvidence(evidence) {
   if (!evidence || typeof evidence !== 'object') return null;
@@ -146,13 +185,20 @@ function summariseEvidence(evidence) {
   return Object.keys(allowed).length > 0 ? allowed : null;
 }
 
+// ---------------------------------------------------------------------------
+// PARSING
+// ---------------------------------------------------------------------------
+
 /**
  * Pulls a JSON object out of a model response.
  *
- * Defensive on purpose: models wrap JSON in ```json fences, prefix it with
- * "Here is the analysis:", or return it with trailing prose. Anything that will
- * not parse is a failure, and a failure means the AI section is marked
- * unavailable — never that a fallback narrative gets invented.
+ * Defensive on purpose, and necessarily so: Gemini will not accept
+ * responseMimeType 'application/json' alongside a tool declaration, so the
+ * final turn comes back as free text that merely promises to be JSON. Models
+ * wrap it in ```json fences, prefix it with "Here is the analysis:", or trail
+ * prose after it. Anything that will not parse is a failure, and a failure
+ * means the AI section is marked unavailable — never that a fallback narrative
+ * gets invented.
  */
 function parseModelJson(text) {
   if (!text) return null;
@@ -195,97 +241,192 @@ function normaliseReasoning(parsed) {
   return { summary, reasoning, riskFraming, suggestedChecks };
 }
 
+// ---------------------------------------------------------------------------
+// THE MODEL CALL
+// ---------------------------------------------------------------------------
+
+/** One request to Gemini. Resolves to the candidate's content, or throws. */
+async function callGemini({ apiKey, contents, tools }) {
+  const body = {
+    systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+    contents,
+    // Low but not zero: the reasoning should read as prose, not as a template.
+    generationConfig: { temperature: 0.3 }
+  };
+
+  // Tools are withdrawn on the final turn, which is how the loop forces a
+  // written answer out of a model that would otherwise keep investigating.
+  if (tools) body.tools = [{ functionDeclarations: tools }];
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${GEMINI_ENDPOINT}/${REASONER_MODEL}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      const error = new Error(`The AI service returned ${response.status}. ${detail.slice(0, 200)}`.trim());
+      error.handled = true;
+      throw error;
+    }
+
+    const data = await response.json();
+    return data?.candidates?.[0]?.content ?? null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/** Every functionCall part in one model turn. Gemini may emit several at once. */
+function functionCallsIn(content) {
+  return (content?.parts || []).filter(part => part.functionCall).map(part => part.functionCall);
+}
+
+/** Concatenated text of one model turn. */
+function textIn(content) {
+  return (content?.parts || []).filter(part => part.text).map(part => part.text).join('');
+}
+
+// ---------------------------------------------------------------------------
+
 /**
- * Asks Gemini to explain a NOT_CLEARED advisory.
+ * Runs the reasoning agent over a NOT_CLEARED advisory.
  *
- * Resolves to { summary, reasoning, riskFraming, suggestedChecks, model,
- * generatedAt }, or to { unavailable: true, reason } when anything at all goes
- * wrong — a missing key, a network failure, a non-200, an unparseable body.
+ * Resolves to { summary, reasoning, riskFraming, suggestedChecks, trail,
+ * toolCallCount, turns, model, generatedAt }, or to { unavailable: true,
+ * reason, trail } when anything goes wrong.
  *
  * IT NEVER THROWS AND IT NEVER INVENTS. The advisory's rule output is the part
  * that matters and it must render in full whatever happens here. A missing AI
  * response degrades the explanation; it must never degrade the warning, and it
  * must never be papered over with a generated-sounding paragraph the model did
  * not actually produce.
+ *
+ * `trail` records every tool call the model made, in order, including refused
+ * ones. It is returned even on failure — a run that died after two useful
+ * lookups should still show them.
  */
-export async function generateFraudReasoning(advisory, claimContext = {}) {
+export async function generateFraudReasoning(advisory, claimContext = {}, { ClaimModel, claim } = {}) {
   const apiKey = process.env.GEMINI_API_KEY;
+  const trail = [];
+
   if (!apiKey) {
     return {
       unavailable: true,
-      reason: 'GEMINI_API_KEY is not set on the server, so AI reasoning could not be generated.'
+      reason: 'GEMINI_API_KEY is not set on the server, so AI reasoning could not be generated.',
+      trail
     };
   }
 
   const payload = buildPromptPayload(advisory, claimContext);
 
   // Logged once per run so the guardrail can be AUDITED rather than asserted —
-  // verification test 10 reads this line and checks no claimant name is in it.
+  // the verification suite reads this line and checks no claimant name is in it.
   console.log(`[fraudReasoner] outbound payload: ${JSON.stringify(payload)}`);
 
-  const body = {
-    systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
-    contents: [{
-      role: 'user',
-      parts: [{
-        text:
-          'Here is the advisory produced by the deterministic rule layer. Explain it ' +
-          'to the claims agent under the constraints in your instructions.\n\n' +
-          JSON.stringify(payload, null, 2)
-      }]
-    }],
-    generationConfig: {
-      responseMimeType: 'application/json',
-      // Low but not zero: the reasoning should read as prose, not as a template.
-      temperature: 0.3
-    }
-  };
+  const tools = ClaimModel && claim ? buildFraudTools(ClaimModel, claim, advisory) : null;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const contents = [{
+    role: 'user',
+    parts: [{
+      text:
+        'Here is the advisory produced by the deterministic rule layer. Investigate it with ' +
+        'your tools where that would make your analysis more specific, then explain it to the ' +
+        'claims agent under the constraints in your instructions.\n\n' +
+        JSON.stringify(payload, null, 2)
+    }]
+  }];
 
   try {
-    const response = await fetch(
-      `${GEMINI_ENDPOINT}/${REASONER_MODEL}:generateContent`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-        body: JSON.stringify(body),
-        signal: controller.signal
+    for (let turn = 1; turn <= MAX_TOOL_TURNS; turn++) {
+      const isFinalTurn = turn === MAX_TOOL_TURNS;
+
+      // On the last permitted turn the tools are withdrawn, so the model has no
+      // option but to write. Without this a model that keeps investigating
+      // produces nothing at all.
+      const content = await callGemini({
+        apiKey,
+        contents,
+        tools: tools && !isFinalTurn ? tools.declarations : null
+      });
+
+      if (!content) {
+        return { unavailable: true, reason: 'The AI service returned an empty response.', trail };
       }
-    );
 
-    if (!response.ok) {
-      const detail = await response.text().catch(() => '');
-      return {
-        unavailable: true,
-        reason: `The AI service returned ${response.status}. ${detail.slice(0, 200)}`.trim()
-      };
+      const calls = functionCallsIn(content);
+
+      if (calls.length === 0) {
+        // The model has stopped investigating and written something.
+        const parsed = parseModelJson(textIn(content));
+        if (!parsed) {
+          return { unavailable: true, reason: 'The AI response could not be read as JSON.', trail };
+        }
+
+        const reasoning = normaliseReasoning(parsed);
+        if (!reasoning) {
+          return {
+            unavailable: true,
+            reason: 'The AI response was missing the required summary or risk-framing fields.',
+            trail
+          };
+        }
+
+        return {
+          ...reasoning,
+          trail,
+          toolCallCount: trail.length,
+          turns: turn,
+          model: REASONER_MODEL,
+          generatedAt: new Date().toISOString()
+        };
+      }
+
+      // The model asked for something. Run every call it made, record each one,
+      // and hand the results back for the next turn.
+      contents.push(content);
+
+      const responseParts = [];
+      for (const call of calls) {
+        const result = await tools.execute(call.name, call.args);
+
+        trail.push({
+          step: trail.length + 1,
+          tool: call.name,
+          args: call.args || {},
+          // The fence records refusals as loudly as successes. A model that
+          // tried to open a claim the rules never cited is something the agent
+          // reading this card is entitled to see.
+          refused: Boolean(result?.error),
+          result
+        });
+
+        responseParts.push({
+          functionResponse: { name: call.name, response: result }
+        });
+      }
+
+      contents.push({ role: 'user', parts: responseParts });
     }
 
-    const data = await response.json();
-    const text = data?.candidates?.[0]?.content?.parts?.map(part => part.text).join('') || '';
-
-    const parsed = parseModelJson(text);
-    if (!parsed) {
-      return { unavailable: true, reason: 'The AI response could not be read as JSON.' };
-    }
-
-    const reasoning = normaliseReasoning(parsed);
-    if (!reasoning) {
-      return {
-        unavailable: true,
-        reason: 'The AI response was missing the required summary or risk-framing fields.'
-      };
-    }
-
-    return { ...reasoning, model: REASONER_MODEL, generatedAt: new Date().toISOString() };
+    // Fell out of the loop without a written answer.
+    return {
+      unavailable: true,
+      reason: `The AI kept investigating past ${MAX_TOOL_TURNS} turns without writing an analysis.`,
+      trail
+    };
   } catch (err) {
     const reason = err.name === 'AbortError'
       ? `The AI service did not respond within ${REQUEST_TIMEOUT_MS / 1000} seconds.`
-      : `The AI service could not be reached: ${err.message}`;
-    return { unavailable: true, reason };
-  } finally {
-    clearTimeout(timeout);
+      : err.handled
+        ? err.message
+        : `The AI service could not be reached: ${err.message}`;
+    return { unavailable: true, reason, trail };
   }
 }
