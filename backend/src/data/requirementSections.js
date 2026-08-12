@@ -56,7 +56,7 @@ export const OCR_SECTION_BY_REQUIREMENT = {
 // Only these two have a Gemini prompt written for them in scripts/gemini_ocr.py.
 // Everything else maps to a section but has no extractor yet, so we skip the
 // (slow, paid) model call rather than sending it the wrong prompt.
-export const SECTIONS_WITH_OCR = new Set(['motorClaimForm', 'driversLicense']);
+export const SECTIONS_WITH_OCR = new Set(['motorClaimForm', 'driversLicense', 'vehicleDamagePictures']);
 
 /**
  * Requirement label (any casing) → ocrData section key, or null when the
