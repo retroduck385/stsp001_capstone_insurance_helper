@@ -25,6 +25,7 @@ import mongoose from 'mongoose';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { spawn } from 'child_process';
 
 const router = express.Router();
 
@@ -141,6 +142,60 @@ function validateUpload(req) {
 // ---------------------------------------------------------------------------
 // POST /api/claims/:claimId/documents  — upload a NEW document
 // ---------------------------------------------------------------------------
+// router.post('/:claimId/documents', upload.single('file'), async (req, res) => {
+//   const problem = validateUpload(req);
+//   if (problem) {
+//     if (req.file) removeStoredFile(req.file.filename); // don't leave the file behind
+//     return res.status(problem.status).json({ message: problem.message });
+//   }
+
+//   const { claimId } = req.params;
+//   const Claim = getClaimModel();
+
+//   try {
+//     const newDoc = buildDocumentRecord(req.file, req.body.documentType);
+
+//     // WHY NOT claim.documents.push(...) + claim.save():
+//     // `documents` is declared as [mongoose.Schema.Types.Mixed]. Mongoose cannot
+//     // detect in-place changes to Mixed paths, so the push-then-save version
+//     // silently saves nothing. Telling MongoDB directly what to do sidesteps the
+//     // problem entirely (and is atomic).
+//     //
+//     // This is an aggregation-pipeline update — the array of stages below runs
+//     // server-side, in order. We append the document, then recompute docsCount
+//     // from the array's actual length rather than incrementing it. Some existing
+//     // claims have a docsCount that disagrees with their documents array, and
+//     // $inc would preserve that error forever; $size repairs it on every write.
+//     //
+//     // $literal stops MongoDB from interpreting any string in our object that
+//     // happens to begin with "$" as a field reference.
+//     const updatedClaim = await Claim.findOneAndUpdate(
+//       { id: claimId },
+//       [
+//         { $set: { documents: { $concatArrays: [{ $ifNull: ['$documents', []] }, { $literal: [newDoc] }] } } },
+//         { $set: { docsCount: { $size: '$documents' } } }
+//       ],
+//       { new: true } // return the document AFTER the update, not before
+//     );
+
+//     if (!updatedClaim) {
+//       removeStoredFile(req.file.filename); // the claim doesn't exist — bin the file
+//       return res.status(404).json({ message: `No claim found with id "${claimId}".` });
+//     }
+
+//     return res.status(201).json(updatedClaim);
+//   } catch (err) {
+//     // The file is already on disk but the database write failed — clean it up so
+//     // we don't accumulate files that nothing references.
+//     removeStoredFile(req.file.filename);
+//     console.error('Upload failed:', err);
+//     return res.status(500).json({ message: err.message });
+//   }
+// });
+
+// ---------------------------------------------------------------------------
+// POST /api/claims/:claimId/documents  — upload a NEW document
+// ---------------------------------------------------------------------------
 router.post('/:claimId/documents', upload.single('file'), async (req, res) => {
   const problem = validateUpload(req);
   if (problem) {
@@ -153,41 +208,55 @@ router.post('/:claimId/documents', upload.single('file'), async (req, res) => {
 
   try {
     const newDoc = buildDocumentRecord(req.file, req.body.documentType);
+    const absoluteFilePath = path.join(uploadsDir, req.file.filename);
 
-    // WHY NOT claim.documents.push(...) + claim.save():
-    // `documents` is declared as [mongoose.Schema.Types.Mixed]. Mongoose cannot
-    // detect in-place changes to Mixed paths, so the push-then-save version
-    // silently saves nothing. Telling MongoDB directly what to do sidesteps the
-    // problem entirely (and is atomic).
-    //
-    // This is an aggregation-pipeline update — the array of stages below runs
-    // server-side, in order. We append the document, then recompute docsCount
-    // from the array's actual length rather than incrementing it. Some existing
-    // claims have a docsCount that disagrees with their documents array, and
-    // $inc would preserve that error forever; $size repairs it on every write.
-    //
-    // $literal stops MongoDB from interpreting any string in our object that
-    // happens to begin with "$" as a field reference.
+    // 1. Run the AI OCR if it is a supported document type
+    let ocrResult = null;
+    let docType = req.body.documentType; 
+    
+    // TRANSLATION BLOCK: Convert frontend string to database schema key
+    if (docType === 'Completed Motor Claim Form') {
+      docType = 'motorClaimForm';
+    } else if (docType === "Philippine Driver's License" || docType.includes("Driver's License")) {
+      docType = 'driversLicense';
+    }
+
+    // Now it will correctly match and run!
+    if (docType === 'motorClaimForm' || docType === 'driversLicense') {
+      console.log(`Starting AI extraction for ${docType}...`);
+      ocrResult = await runGeminiOCR(absoluteFilePath, docType);
+      console.log('AI Extraction successful!');
+    }
+
+    // 2. Build the MongoDB Aggregation Pipeline
+    const updatePipeline = [
+      { $set: { documents: { $concatArrays: [{ $ifNull: ['$documents', []] }, { $literal: [newDoc] }] } } },
+      { $set: { docsCount: { $size: '$documents' } } }
+    ];
+
+    // 3. Surgically inject the OCR data if we successfully extracted it
+    if (ocrResult) {
+      updatePipeline.push({ 
+        $set: { [`ocrData.${docType}`]: { $literal: ocrResult } } 
+      });
+    }
+
+    // 4. Execute the final database update
     const updatedClaim = await Claim.findOneAndUpdate(
       { id: claimId },
-      [
-        { $set: { documents: { $concatArrays: [{ $ifNull: ['$documents', []] }, { $literal: [newDoc] }] } } },
-        { $set: { docsCount: { $size: '$documents' } } }
-      ],
-      { new: true } // return the document AFTER the update, not before
+      updatePipeline,
+      { new: true } 
     );
 
     if (!updatedClaim) {
-      removeStoredFile(req.file.filename); // the claim doesn't exist — bin the file
+      removeStoredFile(req.file.filename); 
       return res.status(404).json({ message: `No claim found with id "${claimId}".` });
     }
 
     return res.status(201).json(updatedClaim);
   } catch (err) {
-    // The file is already on disk but the database write failed — clean it up so
-    // we don't accumulate files that nothing references.
     removeStoredFile(req.file.filename);
-    console.error('Upload failed:', err);
+    console.error('Upload & OCR failed:', err);
     return res.status(500).json({ message: err.message });
   }
 });
@@ -271,5 +340,36 @@ router.use((err, req, res, next) => {
   }
   return next(err);
 });
+
+function runGeminiOCR(filePath, documentType) {
+  return new Promise((resolve, reject) => {
+    // Note: 'python' might need to be 'python3' depending on your OS/venv setup
+    const pythonProcess = spawn('python3', ['scripts/gemini_ocr.py', filePath, documentType]);
+    
+    let extractedData = '';
+
+    // Catch the JSON printed by Python
+    pythonProcess.stdout.on('data', (data) => {
+      extractedData += data.toString();
+    });
+
+    // Catch any Python errors
+    pythonProcess.stderr.on('data', (data) => {
+      console.error('Python Error:', data.toString());
+    });
+
+    pythonProcess.on('close', (code) => {
+      if (code !== 0) {
+        return reject(new Error(`Python script exited with code ${code}`));
+      }
+      try {
+        // Parse the stringified JSON back into a JavaScript object
+        resolve(JSON.parse(extractedData));
+      } catch (err) {
+        reject(new Error('Failed to parse JSON from Python output.'));
+      }
+    });
+  });
+}
 
 export default router;
