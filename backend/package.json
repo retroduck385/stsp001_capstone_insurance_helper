@@ -8,7 +8,9 @@
     "start": "node src/server.js",
     "seed": "node scripts/seedClaims.js",
     "inspect": "node scripts/inspectDb.js",
-    "cleanup:docs": "node scripts/cleanupDocuments.js"
+    "cleanup:docs": "node scripts/cleanupDocuments.js",
+    "check:fraud": "node scripts/checkFraudAdvisory.js",
+    "check:temporal": "node src/services/fraudRules/temporalRules.selftest.mjs"
   },
   "dependencies": {
     "cors": "^2.8.5",

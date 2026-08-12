@@ -1,19 +1,42 @@
-// services/fraudEngine.js
+// services/fraudRules/temporalRules.js
 //
-// FR-01 — TEMPORAL INCONSISTENCY DETECTION
+// FR-01 — TEMPORAL INCONSISTENCY SIGNALS
 // =============================================================================
-// A deterministic, rule-based integrity check. Given one claim, it returns a
-// score, a band, and the evidence behind every signal it raised.
+// A deterministic, rule-based check on the dates a claim asserts. Given one
+// claim it returns the signals it raised and the evidence behind each.
 //
-// This file is PURE. No React, no network, no imports from components, no
-// reading of the clock beyond stamping `evaluatedAt`. That is deliberate: the
-// whole module is meant to be liftable into a Python service later with a
-// direct line-by-line translation, and to be testable from plain Node.
+//
+// ── THIS FILE USED TO BE frontend/src/services/fraudEngine.js ───────────────
+// It ran in the browser and produced a 0-100 score and a CLEAR / VERIFY / REFER
+// band, where REFER meant "payout locked, refer to Special Investigation Unit".
+//
+// Two things changed and both are deliberate:
+//
+//   1. IT MOVED TO THE BACKEND. The advisory now also reads the claimant's
+//      prior claims out of MongoDB (FR-02), which a browser cannot do. Rather
+//      than evaluate half the catalogue on each side, all three rule families
+//      run here and the result is persisted onto the claim.
+//
+//   2. THE SCORE AND THE BANDS ARE GONE. A weighted score implies a measured
+//      quantity, and three bands ending in a locked payout implies a verdict.
+//      The module makes neither claim any more. Rules now report a severity
+//      only — 'hard' for a factual contradiction between documents, 'soft' for
+//      a pattern that is innocent on its own — and fraudAdvisor.js maps those
+//      onto the advisory vocabulary ('indicator' / 'observation') and decides
+//      the Cleared / Not Cleared state. Nothing here locks anything.
+//
+// The rule codes, the thresholds and every detail sentence are unchanged from
+// the original engine.
+//
+// This file is otherwise still PURE. No Express, no Mongoose, no network, no
+// reading of the clock beyond stamping `evaluatedAt`: the whole module stays
+// liftable into a Python service with a direct line-by-line translation, and
+// testable from plain Node (see temporalRules.selftest.mjs).
 //
 //
 // ── THE INPUT CONTRACT ───────────────────────────────────────────────────────
-// runFraudCheck(claim) expects a claim shaped like the ones GET /api/claims
-// returns, after services/api.js has normalised it:
+// evaluateTemporalRules(claim) expects a claim shaped like the ones GET
+// /api/claims returns, in either ocrData shape:
 //
 //   {
 //     id: 'CLM-2026-9001',
@@ -39,17 +62,16 @@
 //
 // ── THE OUTPUT CONTRACT ──────────────────────────────────────────────────────
 //   {
-//     score: 0-100,
-//     band: 'CLEAR' | 'VERIFY' | 'REFER',
-//     hits:      [ { code, label, category, severity, weight, detail, evidence } ],
-//     suppressed:[ { code, label, detail, suppressionReason } ],
-//     skipped:   [ { code, label, missing: ['policy inception date'] } ],
-//     evaluatedAt: ISO string,
-//     engineVersion: 'fraud-engine-0.1.0'
+//     fired:      [ { code, label, category, severity, detail, evidence } ],
+//     suppressed: [ { code, label, detail, suppressionReason } ],
+//     skipped:    [ { code, label, missing: ['policy inception date'] } ]
 //   }
 //
+// The same three-part shape evaluateHistoryRules() and evaluateValuationRules()
+// return, so fraudAdvisor.js can treat all three catalogues identically.
 //
-// ── NON-NEGOTIABLE GUARDRAILS (see CLAUDE-CODE-PLAN-fraud-module.md) ─────────
+//
+// ── NON-NEGOTIABLE GUARDRAILS (see CLAUDE.md at the repo root) ──────────────
 // 1. A fraud signal NEVER changes the payout. Nothing in this file reads or
 //    writes approvedPayout / recommendedPayout. Its output only routes work.
 // 2. The result lives in its own object and is never merged into claim.rules.
@@ -64,27 +86,13 @@
 //    exist in ocrData and are deliberately untouched.
 // =============================================================================
 
-// The explicit .js extension is deliberate. Elsewhere in this codebase imports
-// are extensionless because Vite resolves them, but this module is also meant
-// to run under plain Node (see fraudEngine.selftest.mjs), and Node's ESM
-// resolver requires the extension. Vite accepts it either way.
-import { getPolicyPeriod } from '../data/policyRegister.js';
+// The explicit .js extension is required — the backend runs as native ESM
+// ("type": "module" in backend/package.json) and Node's resolver does not add
+// extensions. It was already written this way when the file lived under
+// frontend/, precisely so it could run under plain Node.
+import { getPolicyPeriod } from '../../data/policyRegister.js';
 
-export const ENGINE_VERSION = 'fraud-engine-0.1.0';
-
-/** score → band. The soft-only floor in runFraudCheck can override this. */
-export const BAND_THRESHOLDS = [
-  { band: 'CLEAR', min: 0, max: 24 },
-  { band: 'VERIFY', min: 25, max: 54 },
-  { band: 'REFER', min: 55, max: 100 }
-];
-
-/** One-line meaning of each band, for the UI and the referral packet. */
-export const BAND_MEANING = {
-  CLEAR: 'No integrity signals. Normal processing.',
-  VERIFY: 'Verification required before approval.',
-  REFER: 'Payout locked. Refer to Special Investigation Unit.'
-};
+export const TEMPORAL_RULES_VERSION = 'fr01-temporal-1.0.0';
 
 // ---------------------------------------------------------------------------
 // DATE HANDLING
@@ -340,7 +348,6 @@ export const FRAUD_RULES = [
     label: 'Incident Predates Policy Inception',
     category: 'Temporal Inconsistency',
     severity: 'hard',
-    weight: 55,
     requires: [
       ['incidentDate', 'incident date'],
       ['policyInceptionDate', 'policy inception date']
@@ -361,7 +368,6 @@ export const FRAUD_RULES = [
     label: 'Incident After Policy Expiry',
     category: 'Temporal Inconsistency',
     severity: 'hard',
-    weight: 55,
     requires: [
       ['incidentDate', 'incident date'],
       ['policyExpiryDate', 'policy expiry date']
@@ -382,7 +388,6 @@ export const FRAUD_RULES = [
     label: 'Cross-Document Date Conflict',
     category: 'Temporal Inconsistency',
     severity: 'hard',
-    weight: 40,
     requires: [
       ['incidentDate', 'incident date on the claim form'],
       ['policeReportDate', 'date on the police report / affidavit']
@@ -417,7 +422,6 @@ export const FRAUD_RULES = [
     label: 'Policy Freshness',
     category: 'Temporal Inconsistency',
     severity: 'soft',
-    weight: 15,
     requires: [
       ['incidentDate', 'incident date'],
       ['policyInceptionDate', 'policy inception date']
@@ -438,7 +442,6 @@ export const FRAUD_RULES = [
     label: 'Delayed Reporting',
     category: 'Temporal Inconsistency',
     severity: 'soft',
-    weight: 10,
     requires: [
       ['incidentDate', 'incident date'],
       ['reportedDate', 'date the claim was filed']
@@ -462,7 +465,6 @@ export const FRAUD_RULES = [
     label: 'Repair Estimate Predates Incident',
     category: 'Temporal Inconsistency',
     severity: 'hard',
-    weight: 40,
     requires: [
       ['incidentDate', 'incident date'],
       ['estimateDate', 'date on the repair estimate']
@@ -518,27 +520,31 @@ export const SUPPRESSION_RULES = [
 // PART C — THE RUNNER
 // ---------------------------------------------------------------------------
 
-function bandForScore(score) {
-  const match = BAND_THRESHOLDS.find(b => score >= b.min && score <= b.max);
-  return match ? match.band : 'CLEAR';
-}
-
 /**
  * Runs the whole catalogue against one claim.
  *
- * Deterministic: the same claim always produces the same score and band. The
- * only non-deterministic value in the output is `evaluatedAt`.
+ * Returns { fired, suppressed, skipped } — the same shape the FR-02 and FR-03
+ * catalogues return. Severities stay 'hard' / 'soft' here; fraudAdvisor.js maps
+ * them to 'indicator' / 'observation' as it merges the three families, so this
+ * file needs no knowledge of the advisory vocabulary.
+ *
+ * Deterministic: the same claim always produces the same signals.
+ *
+ * WHERE THE SOFT-ONLY FLOOR WENT.
+ * The old runner forced the band to CLEAR unless at least one 'hard' rule fired,
+ * because policy freshness plus a late filing describes an ordinary claim rather
+ * than a reason to hold someone's payout. That rule has not been dropped — it
+ * has been generalised. fraudAdvisor.js sets NOT_CLEARED only when an
+ * 'indicator' fired, and 'soft' maps to 'observation', so a claim carrying
+ * nothing but soft temporal signals still comes back CLEARED. Same behaviour,
+ * one decision point instead of two.
  */
-export function runFraudCheck(claim) {
-  const evaluatedAt = new Date().toISOString();
-
-  if (!claim) {
-    return { score: 0, band: 'CLEAR', hits: [], suppressed: [], skipped: [], evaluatedAt, engineVersion: ENGINE_VERSION };
-  }
+export function evaluateTemporalRules(claim) {
+  if (!claim) return { fired: [], suppressed: [], skipped: [] };
 
   const ctx = buildFraudContext(claim);
 
-  const hits = [];
+  const fired = [];
   const suppressed = [];
   const skipped = [];
 
@@ -549,7 +555,7 @@ export function runFraudCheck(claim) {
       .map(([, label]) => label);
 
     if (missing.length > 0) {
-      skipped.push({ code: rule.code, label: rule.label, severity: rule.severity, missing });
+      skipped.push({ code: rule.code, label: rule.label, category: rule.category, missing });
       continue;
     }
 
@@ -569,7 +575,6 @@ export function runFraudCheck(claim) {
         label: rule.label,
         category: rule.category,
         severity: rule.severity,
-        weight: rule.weight,
         detail: outcome.detail,
         evidence: outcome.evidence,
         suppressionReason: suppression.reason
@@ -577,34 +582,15 @@ export function runFraudCheck(claim) {
       continue;
     }
 
-    hits.push({
+    fired.push({
       code: rule.code,
       label: rule.label,
       category: rule.category,
       severity: rule.severity,
-      weight: rule.weight,
       detail: outcome.detail,
       evidence: outcome.evidence
     });
   }
 
-  const score = Math.min(100, hits.reduce((total, hit) => total + hit.weight, 0));
-
-  // THE SOFT-ONLY FLOOR.
-  // If nothing harder than a soft signal fired, the band is forced to CLEAR no
-  // matter what the weights add up to. Policy freshness plus a late filing is a
-  // description of an ordinary claim, not a reason to hold someone's payout.
-  // Escalation requires at least one factual contradiction in the documents.
-  const hasHard = hits.some(hit => hit.severity === 'hard');
-  const band = hits.length === 0 || !hasHard ? 'CLEAR' : bandForScore(score);
-
-  return { score, band, hits, suppressed, skipped, evaluatedAt, engineVersion: ENGINE_VERSION };
-}
-
-/**
- * Convenience for the dashboard: is this claim one an adjuster must act on
- * before approving? Kept here so the threshold lives with the engine.
- */
-export function needsIntegrityReview(result) {
-  return Boolean(result) && (result.band === 'VERIFY' || result.band === 'REFER');
+  return { fired, suppressed, skipped };
 }

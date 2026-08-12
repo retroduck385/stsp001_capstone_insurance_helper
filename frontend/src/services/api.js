@@ -102,6 +102,28 @@ export async function updateClaim(claimId, patch) {
   return normaliseClaim(await response.json());
 }
 
+/**
+ * POST /api/claims/:claimId/fraud-review — runs the fraud advisory.
+ *
+ * POST rather than GET because it writes: the backend evaluates FR-01/02/03,
+ * persists the result under `fraudAdvisory`, and returns the full updated claim.
+ * Re-running overwrites, so this is also how a re-check after an OCR correction
+ * happens.
+ *
+ * The advisory is deliberately NOT something updateClaim() can write — it is a
+ * machine-produced assessment with its own route, the same way documents and
+ * ocrData have theirs.
+ *
+ * Resolves to the full updated claim.
+ */
+export async function runFraudReview(claimId) {
+  const response = await fetch(`${API_BASE}/api/claims/${encodeURIComponent(claimId)}/fraud-review`, {
+    method: 'POST'
+  });
+  if (!response.ok) await throwApiError(response, 'Could not run the fraud advisory');
+  return normaliseClaim(await response.json());
+}
+
 // ---------------------------------------------------------------------------
 // Documents
 // ---------------------------------------------------------------------------

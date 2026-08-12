@@ -2,6 +2,30 @@
  * Final decision bar: the payout figure plus Approve / Edit Payout / Deny.
  * Once the claim is Completed or Denied the buttons are replaced by a sealed
  * status badge and the policyholder email notification row appears.
+ *
+ *
+ * ── WHY THE FRAUD ADVISORY DOES NOT APPEAR ANYWHERE IN THIS FILE ────────────
+ * This component takes no advisory prop, has no disabled state tied to one, and
+ * has no "refer to investigation" action. That is deliberate and it is the
+ * single most important design decision in the fraud module.
+ *
+ * The advisory rests substantially on claim frequency. Frequency is a
+ * well-established trigger for investigation and equally well established as
+ * NOT being evidence of fraud — a policyholder with four legitimate claims from
+ * four separate verifiable events is a high-risk customer, not a fraudster, and
+ * nothing in a count of claims can establish intent. A module that greyed out
+ * Approve or held a payout on that basis would be asserting something its
+ * inputs cannot support, against a real person's money.
+ *
+ * So the warning is non-blocking by construction rather than by convention: the
+ * means to block simply are not passed to this component. What the module may
+ * do is ask the agent to acknowledge the advisory in writing before approving —
+ * see FraudAcknowledgementModal.jsx, which App.jsx opens instead of approving.
+ * It records the decision; it never prevents it.
+ *
+ * If a future change wants to gate approval on the advisory, that is a change
+ * to the module's claim about what it knows, not a UI tweak. Read CLAUDE.md
+ * guardrails 2 and 3 first.
  */
 export default function DecisionPanel({
   activeClaim,

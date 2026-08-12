@@ -1,20 +1,24 @@
-// services/fraudEngine.selftest.mjs
+// services/fraudRules/temporalRules.selftest.mjs
 //
-// Verifies the FR-01 engine against fixtures, with no browser, no Vite and no
-// MongoDB. Run it from the repo root:
+// Verifies the FR-01 temporal catalogue against fixtures, with no Express, no
+// MongoDB and no browser. Run it from the repo root:
 //
-//     node frontend/src/services/fraudEngine.selftest.mjs
+//     node backend/src/services/fraudRules/temporalRules.selftest.mjs
 //
 // It exits non-zero if any case fails, so it can go straight into CI later.
 //
-// The fixtures are the four demo claims from CLAUDE-CODE-PLAN-fraud-module.md,
-// rewritten into the shape the live API actually returns: nested `ocrData`
-// sections, `createdAt` as the filing date, and policy dates on the claim.
+// The fixtures are written in the shape the live API actually returns: nested
+// `ocrData` sections, `createdAt` as the filing date, and policy dates on the
+// claim. This doubles as the worked example of the input contract — if you want
+// to know what the rules expect, read a fixture.
 //
-// This doubles as the worked example of the input contract — if you want to
-// know what the engine expects, read a fixture.
+// NOTE ON WHAT THESE ASSERT NOW. The engine no longer produces a score or a
+// band, so the expectations are the rule codes alone: which fired, which were
+// suppressed, which could not be evaluated. That is a stricter test than the old
+// one, not a looser one — a band could hide two different sets of hits behind
+// the same label, and codes cannot.
 
-import { runFraudCheck } from './fraudEngine.js';
+import { evaluateTemporalRules } from './temporalRules.js';
 
 const claimForm = { id: 'doc-1', documentType: 'Completed Motor Claim Form', title: 'Motor Claim Form' };
 const policeReport = { id: 'doc-2', documentType: 'Police Report OR Notarized Affidavit / Facts of Accident', title: 'Police Report' };
@@ -34,7 +38,7 @@ const FIXTURES = [
       rules: [],
       ocrData: { motorClaimForm: { accident_date: '01/28/2025' } }
     },
-    expect: { band: 'REFER', hits: ['FR-01a', 'FR-01e'], suppressed: [], score: 65 }
+    expect: { fired: ['FR-01a', 'FR-01e'], suppressed: [] }
   },
   {
     name: '8892 — police report dated 36 days before the claim form says the loss happened',
@@ -52,7 +56,7 @@ const FIXTURES = [
         policeReportOrAffidavit: { reportDate: '2026-01-05T00:00:00.000Z' }
       }
     },
-    expect: { band: 'REFER', hits: ['FR-01c', 'FR-01d'], suppressed: [], score: 55 }
+    expect: { fired: ['FR-01c', 'FR-01d'], suppressed: [] }
   },
   {
     name: '8893 — everything consistent',
@@ -67,7 +71,7 @@ const FIXTURES = [
       rules: [],
       ocrData: { motorClaimForm: { accident_date: '03/04/2026' } }
     },
-    expect: { band: 'CLEAR', hits: [], suppressed: [], score: 0 }
+    expect: { fired: [], suppressed: [] }
   },
   {
     name: '8894 — 19-day delay during a typhoon, suppressed',
@@ -82,7 +86,7 @@ const FIXTURES = [
       rules: [{ type: 'red', title: 'Typhoon / Flood Damage Excluded', text: 'No Acts of Nature endorsement.' }],
       ocrData: { motorClaimForm: { accident_date: '02/01/2026', accident_weather: 'Typhoon, heavy flooding' } }
     },
-    expect: { band: 'CLEAR', hits: [], suppressed: ['FR-01e'], score: 0 }
+    expect: { fired: [], suppressed: ['FR-01e'] }
   },
 
   // --- the cases that matter for the LIVE system, where most fields are null ---
@@ -96,12 +100,12 @@ const FIXTURES = [
       rules: [],
       ocrData: { motorClaimForm: { accident_date: '02/26/2026' } }
     },
-    expect: { band: 'CLEAR', hits: [], suppressed: [], score: 0, skipped: ['FR-01a', 'FR-01b', 'FR-01c', 'FR-01d', 'FR-01f'] }
+    expect: { fired: [], suppressed: [], skipped: ['FR-01a', 'FR-01b', 'FR-01c', 'FR-01d', 'FR-01f'] }
   },
   {
     name: 'live claim with nothing extracted yet — every rule reports NOT EVALUATED',
     claim: { id: 'CLM-2026-9002', createdAt: '2026-03-01T02:00:00.000Z', documents: [], rules: [], ocrData: {} },
-    expect: { band: 'CLEAR', hits: [], suppressed: [], score: 0, skipped: ['FR-01a', 'FR-01b', 'FR-01c', 'FR-01d', 'FR-01e', 'FR-01f'] }
+    expect: { fired: [], suppressed: [], skipped: ['FR-01a', 'FR-01b', 'FR-01c', 'FR-01d', 'FR-01e', 'FR-01f'] }
   },
   {
     name: 'repair estimate dated before the incident',
@@ -115,8 +119,7 @@ const FIXTURES = [
         repairEstimate: { estimateDate: '2026-02-14T00:00:00.000Z' }
       }
     },
-    // One hard hit at weight 40 lands in the VERIFY band (25-54), not REFER.
-    expect: { band: 'VERIFY', hits: ['FR-01f'], suppressed: [], score: 40 }
+    expect: { fired: ['FR-01f'], suppressed: [] }
   },
   {
     name: 'HITL correction wins over the extracted value',
@@ -140,7 +143,7 @@ const FIXTURES = [
         }
       ]
     },
-    expect: { band: 'CLEAR', hits: ['FR-01d'], suppressed: [], score: 15 }
+    expect: { fired: ['FR-01d'], suppressed: [] }
   },
   {
     name: 'late filing declared on the form — delayed reporting suppressed',
@@ -156,7 +159,7 @@ const FIXTURES = [
         }
       }
     },
-    expect: { band: 'CLEAR', hits: [], suppressed: ['FR-01e'], score: 0 }
+    expect: { fired: [], suppressed: ['FR-01e'] }
   }
 ];
 
@@ -168,15 +171,11 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify([...b].sort());
 let failures = 0;
 
 for (const { name, claim, expect } of FIXTURES) {
-  const result = runFraudCheck(claim);
+  const result = evaluateTemporalRules(claim);
   const problems = [];
 
-  if (result.band !== expect.band) problems.push(`band ${result.band}, expected ${expect.band}`);
-  if (expect.score !== undefined && result.score !== expect.score) {
-    problems.push(`score ${result.score}, expected ${expect.score}`);
-  }
-  if (!same(codes(result.hits), expect.hits)) {
-    problems.push(`hits [${codes(result.hits)}], expected [${[...expect.hits].sort()}]`);
+  if (!same(codes(result.fired), expect.fired)) {
+    problems.push(`fired [${codes(result.fired)}], expected [${[...expect.fired].sort()}]`);
   }
   if (!same(codes(result.suppressed), expect.suppressed)) {
     problems.push(`suppressed [${codes(result.suppressed)}], expected [${[...expect.suppressed].sort()}]`);
@@ -185,7 +184,12 @@ for (const { name, claim, expect } of FIXTURES) {
     problems.push(`skipped [${codes(result.skipped)}], expected [${[...expect.skipped].sort()}]`);
   }
 
-  // Guardrail 1, asserted rather than assumed: the engine must never emit a
+  // Guardrail 4, asserted rather than assumed: no signal fires without evidence.
+  for (const hit of result.fired) {
+    if (!hit.evidence) problems.push(`${hit.code} fired with no evidence block`);
+  }
+
+  // Guardrail 1, asserted rather than assumed: the rules must never emit a
   // payout-shaped field. If someone adds one, this fails loudly.
   const forbidden = ['approvedPayout', 'recommendedPayout', 'claimedAmount', 'payout'];
   const leaked = forbidden.filter(key => key in result);
@@ -196,17 +200,18 @@ for (const { name, claim, expect } of FIXTURES) {
     console.log(`FAIL  ${name}`);
     problems.forEach(p => console.log(`        ${p}`));
   } else {
-    const detail = `${result.score} ${result.band}` +
-      (result.hits.length ? ` · hits ${codes(result.hits).join(',')}` : '') +
-      (result.suppressed.length ? ` · suppressed ${codes(result.suppressed).join(',')}` : '') +
-      (result.skipped.length ? ` · not evaluated ${codes(result.skipped).join(',')}` : '');
+    const detail = [
+      result.fired.length ? `fired ${codes(result.fired).join(',')}` : 'nothing fired',
+      result.suppressed.length ? `suppressed ${codes(result.suppressed).join(',')}` : null,
+      result.skipped.length ? `not evaluated ${codes(result.skipped).join(',')}` : null
+    ].filter(Boolean).join(' · ');
     console.log(`ok    ${name}\n        ${detail}`);
   }
 }
 
 console.log(
   failures === 0
-    ? `\nAll ${FIXTURES.length} fraud-engine cases passed.`
+    ? `\nAll ${FIXTURES.length} FR-01 temporal cases passed.`
     : `\n${failures} of ${FIXTURES.length} cases FAILED.`
 );
 
