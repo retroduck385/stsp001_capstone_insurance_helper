@@ -36,11 +36,12 @@ class RuleStore:
         result = self.collection.insert_many(docs)
         return [str(_id) for _id in result.inserted_ids]
 
-    def insert_chunks(self, chunks: List[Dict[str, Any]]) -> List[str]:
+    def insert_chunks(self, chunks: List[Dict[str, Any]], section: str) -> List[str]:
         for c in chunks:
            self.collection.insert_one({
                 "chunk_id": c.get("chunk_id"),
                 "policy_id": "axa_private_car_policy",
+                "section": section,
                 "text": c.get("text"),
                 "embedding": c.get("embedding"),
                 "token_count": c.get("token_count"),
