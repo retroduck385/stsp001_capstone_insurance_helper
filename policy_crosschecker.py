@@ -90,34 +90,34 @@ class PolicyCrossChecker:
                 affected = motor.get("affected_persons", [])
                 if affected:
                     persons_text = "\n".join(f"- {p.get('name')}: {p.get('injury')}" for p in affected)
-                    text+= f"""AFFECTED THIRD PARTY(IES)\n{persons_text}"""
+                    text+= f"""\nAFFECTED THIRD PARTY(IES)\n{persons_text}"""
 
                 if medcert.get("diagnosis"):
-                   text+=f"""MEDICAL CERTIFICATE
+                   text+=f"""\nMEDICAL CERTIFICATE
                     Patient: {medcert.get("patientName")}
                     Diagnosis: {medcert.get("diagnosis")}
                     Attending Physician: {medcert.get("attendingPhysician")}
                     """
 
                 if hospital.get("totalAmountDue"):
-                    f"""HOSPITAL BILLS
+                    text+=f"""\nHOSPITAL BILLS
                     Hospital: {hospital.get("hospitalName")}
                     Total Amount Due: PHP {hospital.get("totalAmountDue")}"""
 
                 if police.get("incidentSummary"):
-                    text+=f"""POLICE REPORT
+                    text+=f"""\nPOLICE REPORT
                     Reporting Officer: {police.get("reportingOfficer")}
                     Incident Summary: {police.get("incidentSummary")}"""
 
                 # Only if this escalates to a death claim
                 if death.get("deceasedName"):
-                    text+=f"""DEATH CERTIFICATE
+                    text+=f"""\nDEATH CERTIFICATE
                     Deceased: {death.get("deceasedName")}
                     Date of Death: {death.get("dateOfDeath")}
                     Cause: {death.get("causeOfDeath")}"""
 
                 if funeral.get("totalAmount"):
-                    text+=f"""FUNERAL EXPENSES
+                    text+=f"""\nFUNERAL EXPENSES
                     Total Amount: PHP {funeral.get("totalAmount")}"""
 
             elif claim_document.get("claimType") == "Own Damage":
@@ -125,38 +125,39 @@ class PolicyCrossChecker:
                 damage_parts = motor.get("description_of_damage", [])
                 if damage_parts:
                     parts_text = "\n".join(f"- {d.get('part')}: {d.get('extent')}" for d in damage_parts)
-                    text+=f"""DAMAGE\n{parts_text}\nDescription: {damage_pics.get("damageDescription", "")}\nSeverity: {damage_pics.get("severity", "")}"""
+                    text+=f"""\nDAMAGE\n{parts_text}\nDescription: {damage_pics.get("damageDescription", "")}\nSeverity: {damage_pics.get("severity", "")}"""
 
                 if repair.get("totalEstimatedCost"):
-                    text+=f"""REPAIR ESTIMATE
+                    text+=f"""\nREPAIR ESTIMATE
                     Shop: {repair.get("shopName")}
                     Estimated Cost: PHP {repair.get("totalEstimatedCost")}
                     Affected Parts: {", ".join(repair.get("detectedParts", []))}"""
 
                 if police.get("incidentSummary"):
-                    text+=f"""POLICE REPORT
+                    text+=f"""\nPOLICE REPORT
                     Reporting Officer: {police.get("reportingOfficer")}
                     Incident Summary: {police.get("incidentSummary")}"""
 
             else:
+                damage_parts = motor.get("description_of_damage", [])
                 if damage_parts:
                     parts_text = "\n".join(f"- {d.get('part')}: {d.get('extent')}" for d in damage_parts)
-                    text+=f"""THIRD-PARTY VEHICLE DAMAGE\n{parts_text}\nDescription: {damage_pics.get("damageDescription", "")}\nSeverity: {damage_pics.get("severity", "")}"""
+                    text+=f"""\nTHIRD-PARTY VEHICLE DAMAGE\n{parts_text}\nDescription: {damage_pics.get("damageDescription", "")}\nSeverity: {damage_pics.get("severity", "")}"""
 
                 if repair.get("totalEstimatedCost"):
-                    text+=f"""REPAIR ESTIMATE (THIRD-PARTY VEHICLE)
+                    text+=f"""\nREPAIR ESTIMATE (THIRD-PARTY VEHICLE)
                     Shop: {repair.get("shopName")}
                     Estimated Cost: PHP {repair.get("totalEstimatedCost")}
                     Affected Parts: {", ".join(repair.get("detectedParts", []))}"""
 
                 if no_claim_cert.get("confirmationStatus"):
-                    text+=f"""CERTIFICATE OF NO OWN DAMAGE CLAIM
+                    text+=f"""\nCERTIFICATE OF NO OWN DAMAGE CLAIM
                     Third-Party Insurer: {no_claim_cert.get("thirdPartyInsurerName")}
                     Status: {no_claim_cert.get("confirmationStatus")}
                     Issue Date: {no_claim_cert.get("issueDate")}"""
 
                 if police.get("incidentSummary"):
-                    text+=f"""POLICE REPORT
+                    text+=f"""\nPOLICE REPORT
                     Reporting Officer: {police.get("reportingOfficer")}
                     Incident Summary: {police.get("incidentSummary")}"""
 
@@ -231,6 +232,7 @@ class PolicyCrossChecker:
 
         # 4. Build prompt for Gemini
         definitions = f"""
+        \n\n
         DEFINITIONS
         1. MOTOR VEHICLE is any vehicle as defined in Section Three, paragraph (a) of Republic Act – Numbered Four Thousand One Hundred Thirty-Six, 
         otherwise known as the “Land Transportation and Traffic Code".
@@ -240,6 +242,7 @@ class PolicyCrossChecker:
         """
 
         nuclearExclusionsClause = f"""
+        \n\n
         NUCLEAR EXCLUSIONS CLAUSE
         1. This Policy does not cover:
         (a)
@@ -254,6 +257,7 @@ class PolicyCrossChecker:
         """
 
         exceptionstoSectionIII = f"""
+        \n\n
         EXCEPTIONS TO SECTION III
         The Company shall not be liable to pay for:-
         1. Loss or Damage in respect of any claim or series of claims arising out of one event, the first amount of each and every loss for each and every 
@@ -265,6 +269,7 @@ class PolicyCrossChecker:
         """
 
         sectionIV = f"""
+        \n\n
         SECTION IV – EXCESS LIABILITY INSURANCE
         1. The Company will, subject to the Limits of Liability, reimburse the Insured for all sums actually paid by the Insured to discharge liability in 
         accordance with all provisions of Section I except the Limits of Liability for Section I but only in excess of:
@@ -330,7 +335,8 @@ class PolicyCrossChecker:
         {{
         "Claim ID": "{claimID}",
         "Policy Status": "Covered / Not Covered / Requires Further Review",
-        "Payout Amount": amount in PHP or 0 if not applicable,
+        "Claimed Amount": amount in PHP,
+        "Reccomended Payout": amount in PHP or 0 if not applicable,
         "relevant_provisions": [
             {{
                 "section": "Policy section",
@@ -365,8 +371,8 @@ class PolicyCrossChecker:
 
 
 #sample initializer of class, and function call of storeResult and cross_check_claim (the only two functions that should be relevant to the frontend)
-# crosschecker = PolicyCrossChecker(connection_string=None,db_name="stsp_db" , resultdb = "reccomendation_db", )
-# crosschecker.storeResult(crosschecker.cross_check_claim("CLM-2026-9001", ["injury_policies","global_conditions_and_exceptions", "loss_or_damage_policies"],top_k=5))
+crosschecker = PolicyCrossChecker(connection_string=None,db_name="stsp_db" , resultdb = "reccomendation_db", )
+crosschecker.storeResult(crosschecker.cross_check_claim("CLM-2026-9001", ["injury_policies","global_conditions_and_exceptions", "loss_or_damage_policies"],top_k=5))
 
        
 
