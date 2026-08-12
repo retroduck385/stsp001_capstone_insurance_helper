@@ -19,6 +19,8 @@ import mongoose from 'mongoose';
 import { buildFraudAdvisory } from '../src/services/fraudAdvisor.js';
 import { findClaimantHistory, resolveClaimantKey } from '../src/services/claimantIdentity.js';
 import { buildFraudTools, citedClaimIds } from '../src/services/fraudTools.js';
+import { MODEL_LADDER, PRIMARY_MODEL } from '../src/services/fraudReasoner.js';
+import { collectGroundTruth, checkGrounding } from '../src/services/fraudGrounding.js';
 
 const claimSchema = new mongoose.Schema({}, { strict: false, id: false, collection: 'claims' });
 mongoose.model('Claim', claimSchema);
@@ -226,6 +228,91 @@ async function run() {
   );
   if (aiTrail.length > 0) {
     console.log(`  note  the agent made ${aiTrail.length} tool call(s) on 0001: ${aiTrail.map(t => t.tool).join(', ')}`);
+  }
+
+  // -------------------------------------------------------------------------
+  console.log('\nTHE MODEL LADDER');
+  // -------------------------------------------------------------------------
+  check('the ladder has no duplicates', new Set(MODEL_LADDER).size === MODEL_LADDER.length, MODEL_LADDER.join(' → '));
+  check('the primary model is the first rung', PRIMARY_MODEL === MODEL_LADDER[0], PRIMARY_MODEL);
+  check(
+    'no known-unavailable model is in the ladder',
+    !MODEL_LADDER.includes('gemini-2.5-flash-lite'),
+    'gemini-2.5-flash-lite returns 404 for this key'
+  );
+
+  for (const advisory of [a1, a4]) {
+    const attempts = advisory.ai?.modelAttempts || [];
+    if (attempts.length > 1) {
+      console.log(`  note  fell back: ${attempts.map(a => `${a.model} (${a.outcome})`).join(' → ')}`);
+    }
+  }
+  check(
+    'every AI result records which models were tried',
+    [a1.ai, a4.ai].every(ai => Array.isArray(ai?.modelAttempts) && ai.modelAttempts.length > 0)
+  );
+
+  // -------------------------------------------------------------------------
+  console.log('\nTHE GROUNDING CHECK — does every figure trace back to the data?');
+  // -------------------------------------------------------------------------
+  // Exercised against hand-built reasoning objects rather than live model
+  // output, so the assertions are deterministic. What the model happens to
+  // write varies; what the checker does with a given sentence must not.
+  const facts = {
+    claimedAmount: 65000,
+    history: { priorClaimCount: 4, totalClaimedAcrossWindow: 375000 },
+    indicators: [{ evidence: { priorClaimIds: ['DEMO-HIST-0001', 'DEMO-HIST-0003'] } }]
+  };
+  const factTrail = [
+    { args: { claimId: 'DEMO-HIST-0001' }, result: { id: 'DEMO-HIST-0001', claimedAmount: 45000 } },
+    { args: { claimId: 'DEMO-HIST-0003' }, result: { id: 'DEMO-HIST-0003', claimedAmount: 72000 } }
+  ];
+  const truth = collectGroundTruth(facts, factTrail);
+
+  const clean = checkGrounding({
+    summary: 'The claimant filed a ₱65,000 claim. Prior claim DEMO-HIST-0001 was ₱45,000.',
+    riskFraming: 'Ordinary wear could explain this.',
+    suggestedChecks: ['Compare against DEMO-HIST-0003.']
+  }, truth);
+  check('real figures and cited claim ids pass', clean.verified, `${clean.counts.currency} figures checked`);
+
+  const fabricated = checkGrounding({
+    summary: 'The claimant has claimed ₱999,999,999 in total.',
+    riskFraming: 'See also claim FAKE-0000-0001.',
+    suggestedChecks: []
+  }, truth);
+  check('a fabricated peso figure is flagged', fabricated.unsupported.some(u => u.kind === 'currency'));
+  check('a fabricated claim id is flagged', fabricated.unsupported.some(u => u.kind === 'claimId'));
+  check('the flagged item carries its sentence for context',
+    Boolean(fabricated.unsupported[0]?.context), fabricated.unsupported[0]?.context);
+
+  // The false positive that would make the check untrustworthy: ₱117,000 is
+  // 45,000 + 72,000, correct arithmetic over figures the model was given, and
+  // appears nowhere in the source data as a literal.
+  const derived = checkGrounding({
+    summary: 'The two prior claims total ₱117,000.',
+    riskFraming: 'Both were settled normally.',
+    suggestedChecks: []
+  }, truth);
+  check('a correct subtotal is NOT flagged as fabrication', derived.verified, '₱117,000 = 45,000 + 72,000');
+
+  // Guardrail 5 once more: grounding annotates, it never withholds or decides.
+  // Assert that on every successful AI result the analysis is still present in
+  // full, whatever the grounding verdict was — the check must not be able to
+  // suppress the model's output, only mark it.
+  const scored = [a1.ai, a4.ai].filter(ai => ai && !ai.unavailable);
+  if (scored.length > 0) {
+    check(
+      'every AI result carries a grounding verdict',
+      scored.every(ai => ai.grounding?.checked === true),
+      scored.map(ai => `${ai.model}: ${ai.grounding?.verified ? 'clean' : `${ai.grounding?.unsupported.length} flagged`}`).join(' · ')
+    );
+    check(
+      'the analysis survives a grounding failure',
+      scored.every(ai => Boolean(ai.summary) && Boolean(ai.riskFraming))
+    );
+  } else {
+    console.log('  note  no AI result on this run, so the live grounding verdict could not be checked');
   }
 
   // -------------------------------------------------------------------------

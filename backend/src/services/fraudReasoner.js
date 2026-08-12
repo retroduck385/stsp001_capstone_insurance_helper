@@ -38,9 +38,48 @@
 // upstream; rebuilding from a named list fails closed.
 
 import { buildFraudTools } from './fraudTools.js';
+import { collectGroundTruth, checkGrounding } from './fraudGrounding.js';
 
-/** Matches the model backend/scripts/gemini_ocr.py already uses for OCR. */
-export const REASONER_MODEL = 'gemini-3.6-flash';
+/**
+ * The models this agent will try, best first.
+ *
+ * WHY A LADDER AND NOT ONE MODEL.
+ * The agent makes several calls per advisory rather than one, so it exhausts a
+ * free-tier quota far faster than the old single-shot reasoner did. When that
+ * happened the whole AI section collapsed to "unavailable" — correct behaviour,
+ * but it meant the most informative part of the card was routinely a grey box.
+ *
+ * Gemini quotas are per-model, which is the fact that makes this work: a 429 on
+ * gemini-3.6-flash says nothing about gemini-2.5-flash, so stepping down the
+ * ladder gets a genuinely fresh allowance rather than hitting the same wall four
+ * times. Every model here was verified against this project's key to respond and
+ * to support function calling, so the agent's tools survive a downgrade intact.
+ *
+ * Order is capability first, quota last. gemini-3.5-flash-lite is the floor
+ * because a weaker explanation is still worth more than no explanation, and the
+ * rule layer — which decides everything that matters — is unaffected either way.
+ */
+export const MODEL_LADDER = [
+  'gemini-3.6-flash',      // primary; matches backend/scripts/gemini_ocr.py
+  'gemini-3.5-flash',
+  'gemini-2.5-flash',
+  'gemini-3.5-flash-lite'  // last resort, largest quota
+];
+
+/** The model the advisory prefers. Exported for the UI's "fell back" notice. */
+export const PRIMARY_MODEL = MODEL_LADDER[0];
+
+/**
+ * HTTP statuses worth trying the next model for.
+ *
+ * All of these are about the SERVICE: out of quota, overloaded, or broken. A
+ * different model plausibly succeeds.
+ *
+ * Deliberately absent: 400, 401, 403, 404. Those mean our request or our key is
+ * wrong, and every model in the ladder will reject it identically — retrying
+ * would turn one honest error into four and bury the real cause.
+ */
+const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 
 const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
 
@@ -245,8 +284,14 @@ function normaliseReasoning(parsed) {
 // THE MODEL CALL
 // ---------------------------------------------------------------------------
 
-/** One request to Gemini. Resolves to the candidate's content, or throws. */
-async function callGemini({ apiKey, contents, tools }) {
+/**
+ * One request to Gemini against a named model.
+ *
+ * Throws an Error carrying `status` (when the service answered) and `retryable`
+ * (whether the ladder should try the next model). Both are set here so the
+ * decision to fall back is made in one place from one rule.
+ */
+async function callGemini({ apiKey, model, contents, tools }) {
   const body = {
     systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
     contents,
@@ -262,7 +307,7 @@ async function callGemini({ apiKey, contents, tools }) {
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${GEMINI_ENDPOINT}/${REASONER_MODEL}:generateContent`, {
+    const response = await fetch(`${GEMINI_ENDPOINT}/${model}:generateContent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify(body),
@@ -273,11 +318,21 @@ async function callGemini({ apiKey, contents, tools }) {
       const detail = await response.text().catch(() => '');
       const error = new Error(`The AI service returned ${response.status}. ${detail.slice(0, 200)}`.trim());
       error.handled = true;
+      error.status = response.status;
+      error.retryable = RETRYABLE_STATUSES.has(response.status);
       throw error;
     }
 
     const data = await response.json();
     return data?.candidates?.[0]?.content ?? null;
+  } catch (err) {
+    // A timeout or a dropped connection is a service problem like any other, so
+    // it earns the next model rather than ending the run.
+    if (err.status === undefined) {
+      err.retryable = true;
+      err.outcome = err.name === 'AbortError' ? 'timeout' : 'network';
+    }
+    throw err;
   } finally {
     clearTimeout(timeout);
   }
@@ -296,42 +351,15 @@ function textIn(content) {
 // ---------------------------------------------------------------------------
 
 /**
- * Runs the reasoning agent over a NOT_CLEARED advisory.
+ * One complete agent run against ONE model.
  *
- * Resolves to { summary, reasoning, riskFraming, suggestedChecks, trail,
- * toolCallCount, turns, model, generatedAt }, or to { unavailable: true,
- * reason, trail } when anything goes wrong.
+ * Resolves to a finished reasoning object, or to { failed, reason, retryable }.
+ * Throws nothing — the ladder above decides what to do with a failure.
  *
- * IT NEVER THROWS AND IT NEVER INVENTS. The advisory's rule output is the part
- * that matters and it must render in full whatever happens here. A missing AI
- * response degrades the explanation; it must never degrade the warning, and it
- * must never be papered over with a generated-sounding paragraph the model did
- * not actually produce.
- *
- * `trail` records every tool call the model made, in order, including refused
- * ones. It is returned even on failure — a run that died after two useful
- * lookups should still show them.
+ * `trail` is passed in rather than created here so that a run which dies partway
+ * still leaves its completed tool calls behind for the caller to show.
  */
-export async function generateFraudReasoning(advisory, claimContext = {}, { ClaimModel, claim } = {}) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  const trail = [];
-
-  if (!apiKey) {
-    return {
-      unavailable: true,
-      reason: 'GEMINI_API_KEY is not set on the server, so AI reasoning could not be generated.',
-      trail
-    };
-  }
-
-  const payload = buildPromptPayload(advisory, claimContext);
-
-  // Logged once per run so the guardrail can be AUDITED rather than asserted —
-  // the verification suite reads this line and checks no claimant name is in it.
-  console.log(`[fraudReasoner] outbound payload: ${JSON.stringify(payload)}`);
-
-  const tools = ClaimModel && claim ? buildFraudTools(ClaimModel, claim, advisory) : null;
-
+async function runAgent({ apiKey, model, payload, tools, trail }) {
   const contents = [{
     role: 'user',
     parts: [{
@@ -343,90 +371,195 @@ export async function generateFraudReasoning(advisory, claimContext = {}, { Clai
     }]
   }];
 
-  try {
-    for (let turn = 1; turn <= MAX_TOOL_TURNS; turn++) {
-      const isFinalTurn = turn === MAX_TOOL_TURNS;
+  for (let turn = 1; turn <= MAX_TOOL_TURNS; turn++) {
+    const isFinalTurn = turn === MAX_TOOL_TURNS;
 
-      // On the last permitted turn the tools are withdrawn, so the model has no
-      // option but to write. Without this a model that keeps investigating
-      // produces nothing at all.
-      const content = await callGemini({
-        apiKey,
-        contents,
-        tools: tools && !isFinalTurn ? tools.declarations : null
-      });
+    // On the last permitted turn the tools are withdrawn, so the model has no
+    // option but to write. Without this a model that keeps investigating
+    // produces nothing at all.
+    const content = await callGemini({
+      apiKey,
+      model,
+      contents,
+      tools: tools && !isFinalTurn ? tools.declarations : null
+    });
 
-      if (!content) {
-        return { unavailable: true, reason: 'The AI service returned an empty response.', trail };
+    if (!content) {
+      // An empty candidate is usually a safety stop or a truncation. Another
+      // model may well answer, so this earns a step down the ladder.
+      return { failed: true, reason: 'The AI service returned an empty response.', retryable: true };
+    }
+
+    const calls = functionCallsIn(content);
+
+    if (calls.length === 0) {
+      // The model has stopped investigating and written something.
+      const parsed = parseModelJson(textIn(content));
+      if (!parsed) {
+        return { failed: true, reason: 'The AI response could not be read as JSON.', retryable: true };
       }
 
-      const calls = functionCallsIn(content);
+      const reasoning = normaliseReasoning(parsed);
+      if (!reasoning) {
+        return {
+          failed: true,
+          reason: 'The AI response was missing the required summary or risk-framing fields.',
+          retryable: true
+        };
+      }
 
-      if (calls.length === 0) {
-        // The model has stopped investigating and written something.
-        const parsed = parseModelJson(textIn(content));
-        if (!parsed) {
-          return { unavailable: true, reason: 'The AI response could not be read as JSON.', trail };
-        }
+      return { ...reasoning, turns: turn };
+    }
 
-        const reasoning = normaliseReasoning(parsed);
-        if (!reasoning) {
-          return {
-            unavailable: true,
-            reason: 'The AI response was missing the required summary or risk-framing fields.',
-            trail
-          };
+    // The model asked for something. Run every call it made, record each one,
+    // and hand the results back for the next turn.
+    contents.push(content);
+
+    const responseParts = [];
+    for (const call of calls) {
+      const result = await tools.execute(call.name, call.args);
+
+      trail.push({
+        step: trail.length + 1,
+        tool: call.name,
+        args: call.args || {},
+        // The fence records refusals as loudly as successes. A model that
+        // tried to open a claim the rules never cited is something the agent
+        // reading this card is entitled to see.
+        refused: Boolean(result?.error),
+        result
+      });
+
+      responseParts.push({
+        functionResponse: { name: call.name, response: result }
+      });
+    }
+
+    contents.push({ role: 'user', parts: responseParts });
+  }
+
+  return {
+    failed: true,
+    reason: `The AI kept investigating past ${MAX_TOOL_TURNS} turns without writing an analysis.`,
+    // A model that will not stop investigating will probably not stop on a
+    // retry either, and each attempt costs several calls. Take the loss.
+    retryable: false
+  };
+}
+
+/**
+ * Runs the reasoning agent over a NOT_CLEARED advisory, stepping down the model
+ * ladder until one answers.
+ *
+ * Resolves to { summary, reasoning, riskFraming, suggestedChecks, trail,
+ * toolCallCount, turns, model, modelAttempts, grounding, generatedAt }, or to
+ * { unavailable: true, reason, trail, modelAttempts } when every model failed.
+ *
+ * IT NEVER THROWS AND IT NEVER INVENTS. The advisory's rule output is the part
+ * that matters and it must render in full whatever happens here. A missing AI
+ * response degrades the explanation; it must never degrade the warning, and it
+ * must never be papered over with a generated-sounding paragraph the model did
+ * not actually produce.
+ *
+ * WHY THE WHOLE RUN RETRIES, NOT THE INDIVIDUAL CALL.
+ * The agent loop accumulates a `contents` transcript containing the model's own
+ * function calls. Swapping model mid-conversation would hand the next model a
+ * record of someone else's tool use as though it were its own. Restarting is
+ * cleaner, and costs little in practice because a quota failure almost always
+ * lands on the first call of a run.
+ */
+export async function generateFraudReasoning(advisory, claimContext = {}, { ClaimModel, claim } = {}) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  const trail = [];
+  const modelAttempts = [];
+
+  if (!apiKey) {
+    return {
+      unavailable: true,
+      reason: 'GEMINI_API_KEY is not set on the server, so AI reasoning could not be generated.',
+      trail,
+      modelAttempts
+    };
+  }
+
+  const payload = buildPromptPayload(advisory, claimContext);
+
+  // Logged once per run so the guardrail can be AUDITED rather than asserted —
+  // the verification suite reads this line and checks no claimant name is in it.
+  console.log(`[fraudReasoner] outbound payload: ${JSON.stringify(payload)}`);
+
+  const tools = ClaimModel && claim ? buildFraudTools(ClaimModel, claim, advisory) : null;
+
+  let lastReason = 'No model was attempted.';
+
+  for (let i = 0; i < MODEL_LADDER.length; i++) {
+    const model = MODEL_LADDER[i];
+    const isLastModel = i === MODEL_LADDER.length - 1;
+
+    // Where this attempt's tool calls start. A failed attempt's calls are
+    // discarded before the next model runs, so the trail always describes ONE
+    // coherent investigation rather than several models' calls concatenated
+    // into an investigation nobody actually performed.
+    const before = trail.length;
+
+    try {
+      const result = await runAgent({ apiKey, model, payload, tools, trail });
+
+      if (!result.failed) {
+        modelAttempts.push({ model, outcome: 'ok' });
+
+        // The model has written. Before returning it, check that every figure
+        // and claim id in the prose traces back to something it was actually
+        // given — see fraudGrounding.js for what that does and does not prove.
+        const grounding = checkGrounding(result, collectGroundTruth(payload, trail));
+
+        if (!grounding.verified) {
+          console.warn(
+            `[fraudReasoner] ${grounding.unsupported.length} untraceable figure(s) in ${model}'s ` +
+            `analysis: ${grounding.unsupported.map(u => u.value).join(', ')}`
+          );
         }
 
         return {
-          ...reasoning,
+          ...result,
           trail,
           toolCallCount: trail.length,
-          turns: turn,
-          model: REASONER_MODEL,
+          grounding,
+          model,
+          modelAttempts,
           generatedAt: new Date().toISOString()
         };
       }
 
-      // The model asked for something. Run every call it made, record each one,
-      // and hand the results back for the next turn.
-      contents.push(content);
+      modelAttempts.push({ model, outcome: result.reason });
+      lastReason = result.reason;
+      if (!result.retryable) break;
+    } catch (err) {
+      const outcome = err.status ? String(err.status) : (err.outcome || 'error');
+      modelAttempts.push({ model, outcome });
 
-      const responseParts = [];
-      for (const call of calls) {
-        const result = await tools.execute(call.name, call.args);
+      lastReason = err.name === 'AbortError'
+        ? `${model} did not respond within ${REQUEST_TIMEOUT_MS / 1000} seconds.`
+        : err.handled
+          ? err.message
+          : `${model} could not be reached: ${err.message}`;
 
-        trail.push({
-          step: trail.length + 1,
-          tool: call.name,
-          args: call.args || {},
-          // The fence records refusals as loudly as successes. A model that
-          // tried to open a claim the rules never cited is something the agent
-          // reading this card is entitled to see.
-          refused: Boolean(result?.error),
-          result
-        });
-
-        responseParts.push({
-          functionResponse: { name: call.name, response: result }
-        });
-      }
-
-      contents.push({ role: 'user', parts: responseParts });
+      // Our own bad request, or a bad key — every model will reject it the same
+      // way, so stop rather than manufacturing three more identical errors.
+      if (!err.retryable) break;
     }
 
-    // Fell out of the loop without a written answer.
-    return {
-      unavailable: true,
-      reason: `The AI kept investigating past ${MAX_TOOL_TURNS} turns without writing an analysis.`,
-      trail
-    };
-  } catch (err) {
-    const reason = err.name === 'AbortError'
-      ? `The AI service did not respond within ${REQUEST_TIMEOUT_MS / 1000} seconds.`
-      : err.handled
-        ? err.message
-        : `The AI service could not be reached: ${err.message}`;
-    return { unavailable: true, reason, trail };
+    // Discard a partial investigation from a failed attempt — but only when
+    // there is another model to try. On the last one the partial is all there
+    // is, and a run that died after two useful lookups should still show them.
+    if (!isLastModel) trail.length = before;
   }
+
+  const tried = modelAttempts.map(a => `${a.model} (${a.outcome})`).join(', ');
+  return {
+    unavailable: true,
+    reason: `No AI model was available. Tried: ${tried}. Last error: ${lastReason}`,
+    trail,
+    modelAttempts
+  };
 }

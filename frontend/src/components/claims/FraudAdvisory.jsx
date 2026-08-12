@@ -190,6 +190,57 @@ function InvestigationTrail({ trail }) {
 }
 
 /**
+ * Figures in the model's prose that could not be traced back to the claim data.
+ *
+ * WHY THIS EXISTS. The guardrails elsewhere make it structurally impossible for
+ * the model to change the advisory's state, add an indicator, or see who the
+ * claimant is. None of that stops it misstating a number in a sentence — and
+ * that sentence is what the adjuster actually reads. So every peso figure and
+ * claim id in the analysis is checked against the facts the model was given, and
+ * anything untraceable is named here.
+ *
+ * AMBER, NOT RED, and deliberately so. This is a caution about the WRITING, not
+ * a finding about the claim. Rendering it in the indicator palette would invite
+ * an adjuster to read "unverified figure" as another reason to doubt the
+ * claimant, which is the opposite of what it means.
+ *
+ * It annotates and never withholds: a flagged figure still leaves the analysis
+ * on screen, because a check whose only visible effect is an absence is a check
+ * nobody can evaluate.
+ */
+function GroundingNotice({ grounding }) {
+  if (!grounding?.checked || grounding.verified) return null;
+
+  const items = grounding.unsupported || [];
+  if (items.length === 0) return null;
+
+  return (
+    <div className="p-2.5 rounded-lg border border-amber-300 bg-amber-50 space-y-1.5">
+      <div className="flex items-center gap-1.5">
+        <span className="text-amber-600">⚠</span>
+        <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wide">
+          {items.length} figure{items.length === 1 ? '' : 's'} in this analysis could not be traced to the claim data
+        </span>
+      </div>
+
+      <ul className="space-y-1">
+        {items.map((item, index) => (
+          <li key={index} className="text-[10px] text-amber-900 leading-relaxed">
+            <span className="font-mono font-bold">{item.value}</span>
+            <span className="text-amber-700"> — “{item.context}”</span>
+          </li>
+        ))}
+      </ul>
+
+      <p className="text-[10px] text-amber-700/80 italic">
+        Verify these against the claim record before relying on them. The indicators below
+        come from the rule engine and are unaffected.
+      </p>
+    </div>
+  );
+}
+
+/**
  * The AI Analysis panel.
  *
  * When the model was unavailable this renders the reason and NOTHING else
@@ -216,6 +267,11 @@ function AiAnalysis({ ai }) {
     );
   }
 
+  // More than one attempt means the preferred model was unavailable and the
+  // analysis came from further down the ladder. Worth showing: a reader is
+  // entitled to know which model wrote what they are reading.
+  const fellBack = (ai.modelAttempts?.length || 0) > 1;
+
   return (
     <div className="p-3.5 rounded-lg border border-violet-200 bg-gradient-to-br from-violet-50 to-white space-y-2.5">
       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -230,8 +286,19 @@ function AiAnalysis({ ai }) {
             </span>
           )}
           {ai.model && (
-            <span className="text-[9px] font-mono bg-white text-violet-500 border border-violet-200 px-1.5 py-0.5 rounded">
-              {ai.model}
+            <span
+              className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+                fellBack
+                  ? 'bg-amber-50 text-amber-800 border-amber-300'
+                  : 'bg-white text-violet-500 border-violet-200'
+              }`}
+              title={
+                fellBack
+                  ? `The preferred model was unavailable. Tried: ${ai.modelAttempts.map(a => `${a.model} (${a.outcome})`).join(', ')}`
+                  : undefined
+              }
+            >
+              {fellBack && '↓ '}{ai.model}
             </span>
           )}
         </div>
@@ -239,6 +306,8 @@ function AiAnalysis({ ai }) {
 
       {/* Shown BEFORE the analysis, because it is what produced the analysis. */}
       <InvestigationTrail trail={ai.trail} />
+
+      <GroundingNotice grounding={ai.grounding} />
 
       <p className="text-xs text-slate-800 leading-relaxed font-medium">{ai.summary}</p>
 
