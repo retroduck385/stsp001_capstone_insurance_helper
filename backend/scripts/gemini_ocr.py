@@ -116,9 +116,32 @@ Use this exact JSON structure:
 }
 """
 
-# Determine the prompt based on the frontend document type
-selected_prompt = drivers_license_prompt if document_type == "driversLicense" else motor_claim_form_prompt
+vehicle_damage_prompt = """
+You are an expert claims adjuster AI for the "STSP001 Capstone " project. Your task is to analyze the attached vehicle damage image(s), assess the visible damage, and output the result STRICTLY as a valid JSON object.
 
+GUARDRAILS:
+1. Return ONLY the JSON object. Do not include conversational text or markdown code blocks.
+2. Use the exact keys provided below.
+3. For 'severity', classify the damage as one of the following: "Minor", "Moderate", "Heavy", or "Total Loss".
+4. For 'damageDescription', provide a concise, factual summary of the visible damage (e.g., "Crushed front bumper and broken left headlight.").
+
+Use this exact JSON structure:
+{
+  "damageDescription": "string or null",
+  "severity": "string or null"
+}
+"""
+
+# Determine the prompt based on the frontend document type
+if document_type == "driversLicense":
+    selected_prompt = drivers_license_prompt
+elif document_type == "motorClaimForm":
+    selected_prompt = motor_claim_form_prompt
+elif document_type == "vehicleDamagePictures":
+    selected_prompt = vehicle_damage_prompt
+else:
+    selected_prompt = "" # Fallback
+    
 try:
     # 1. Upload to Gemini
     uploaded_file = client.files.upload(file=file_path)
