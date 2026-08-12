@@ -19,6 +19,14 @@ GUARDRAILS:
 2. Use the exact keys provided below. Do not change the casing or spelling.
 3. If a field is missing, illegible, or not applicable on the license, set its value to exactly `null`.
 4. Format all dates as "MM/DD/YYYY" if possible.
+5. Transcribe ONLY what is physically printed on the card. Never calculate, infer or
+   estimate a value from another field.
+6. "driver_license_issue_date" in particular: many Philippine driver's licenses do NOT
+   print an issue date at all. If you cannot see an issue date printed on the card,
+   return exactly `null`. Do NOT derive it from the expiry date, the agency code, or
+   the date of birth.
+7. "driver_license_place_of_issue" is the LTO office / agency code printed on the card —
+   it is not a date and must not be confused with the issue date.
 
 Use this exact JSON structure:
 {

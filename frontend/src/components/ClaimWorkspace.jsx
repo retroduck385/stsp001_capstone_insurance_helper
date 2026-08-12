@@ -32,10 +32,12 @@ export default function ClaimWorkspace({
     formEditorTarget?.docId &&
     (formEditorTarget.requirement || '').toLowerCase().includes('motor claim form');
 
+  // Exact, not `includes`: the label "Official Receipt (Driver License /
+  // Vehicle OR other relevant OR)" also contains "driver license", and matching
+  // it here would open the licence editor over a receipt.
   const isEditingLicense =
     licenseEditorTarget?.docId &&
-    ((licenseEditorTarget.requirement || '').toLowerCase().includes("driver's license") ||
-     (licenseEditorTarget.requirement || '').toLowerCase().includes('driver license'));
+    (licenseEditorTarget.requirement || '').toLowerCase().trim() === "driver's license";
 
   // find the document referenced by formEditorTarget.docId (if any)
   const formEditorDoc = isEditingMotorForm
@@ -56,6 +58,7 @@ export default function ClaimWorkspace({
         fileInputRef={requirements.fileInputRef}
         onFileSelected={requirements.onFileSelected}
         onUploadClick={requirements.onUploadClick}
+        onDeleteDocument={requirements.onDeleteDocument}
         isChecklistChecked={requirements.isChecklistChecked}
         onToggleRequirement={requirements.onToggleRequirement}
         onViewDocument={requirements.onViewDocument}

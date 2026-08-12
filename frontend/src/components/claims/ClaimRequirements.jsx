@@ -1,5 +1,5 @@
 // components/claims/ClaimRequirements.jsx
-import { claimRequirements, documentMatchesRequirement } from '../../data/claimRequirements';
+import { claimRequirements, findDocumentForRequirement } from '../../data/claimRequirements';
 import DocumentPreview from './DocumentPreview';
 
 /**
@@ -11,6 +11,7 @@ export default function ClaimRequirements({
   fileInputRef,
   onFileSelected,
   onUploadClick,
+  onDeleteDocument,
   isChecklistChecked,
   onToggleRequirement,
   onViewDocument,
@@ -20,6 +21,12 @@ export default function ClaimRequirements({
   onOpenLicenseEditor
 }) {
   const requirements = claimRequirements[activeClaim.claimType] || [];
+  // One lookup per requirement, done once. `documentMatchesRequirement` used to
+  // be called separately for "is it supplied?" and "which document is it?",
+  // which could disagree; a single source avoids that entirely.
+  const documentByRequirement = Object.fromEntries(
+    requirements.map(req => [req, findDocumentForRequirement(req, activeClaim.documents)])
+  );
   const confirmedCount = requirements.filter(req => isChecklistChecked(req)).length;
   const allConfirmed = confirmedCount === requirements.length && requirements.length > 0;
 
@@ -64,24 +71,21 @@ export default function ClaimRequirements({
 
           <div className="grid grid-cols-1 gap-2">
             {requirements.map((req, idx) => {
-              const supplied = documentMatchesRequirement(req, activeClaim.documents);
-const checked = isChecklistChecked(req);
+              const matchedDoc = documentByRequirement[req];
+              const supplied = Boolean(matchedDoc);
+              const checked = isChecklistChecked(req);
 
-const isConditional =
-  req.toLowerCase().includes('(if ') ||
-  req.toLowerCase().includes('(death claim only)');
+              const isConditional =
+                req.toLowerCase().includes('(if ') ||
+                req.toLowerCase().includes('(death claim only)');
 
-const matchedDoc = (activeClaim.documents || []).find(
-  doc => documentMatchesRequirement(req, [doc])
-);
-
-
-
-              // compute license/receipt detection here (inside the map callback)
+              // The licence editor belongs to the "Driver's License" row only —
+              // NOT to "Official Receipt (Driver License / Vehicle OR ...)",
+              // whose label also contains the words "driver license".
               const reqText = (req || '').toLowerCase();
-              const looksLikeLicense = /driver'?s?\s*license/.test(reqText) || reqText.includes('driver license');
-              const looksLikeReceipt = /official receipt|receipt|\bor\b/.test(reqText);
-              const showEditLicense = matchedDoc && looksLikeLicense && !looksLikeReceipt && typeof onOpenLicenseEditor === 'function';
+              const isLicenseRequirement = reqText === "driver's license";
+              const showEditLicense =
+                matchedDoc && isLicenseRequirement && typeof onOpenLicenseEditor === 'function';
 
               return (
                 <div
@@ -131,6 +135,24 @@ const matchedDoc = (activeClaim.documents || []).find(
                       >
                         {matchedDoc ? '↻ Replace' : '＋ Upload'}
                       </button>
+
+                      {/* Remove — the only way to un-file a document without
+                          editing MongoDB by hand. Unlike Replace, this also
+                          clears the extracted fields, so a fresh upload gets a
+                          clean AI re-read. */}
+                      {matchedDoc && typeof onDeleteDocument === 'function' && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteDocument(matchedDoc.id, req);
+                          }}
+                          className="text-[10px] px-2 py-1 rounded font-bold bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 transition"
+                          title="Remove this document and clear its extracted fields"
+                        >
+                          🗑 Remove
+                        </button>
+                      )}
 
                       {/* Edit Form */}
                       {matchedDoc && (req || '').toLowerCase().includes('motor claim form') && typeof onOpenFormEditor === 'function' && (

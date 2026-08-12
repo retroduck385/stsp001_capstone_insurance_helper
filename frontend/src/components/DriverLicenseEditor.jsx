@@ -18,14 +18,18 @@ export default function DriverLicenseEditor({ doc, ocrData = [], onClose, onSave
   // from throwing if it is ever handed the raw shape.
   const docOcr = (Array.isArray(ocrData) ? ocrData : []).filter(f => f.sourceDoc === doc?.id);
 
-  // Keys we expect / will save (driver_license_*)
+  // Keys we expect / will save (driver_license_*).
+  //
+  // `driver_license_type` is deliberately absent: this editor renders no input
+  // for it and it is not declared in the Mongoose schema, so it was only ever
+  // dead weight — and its OCR mapping (below) matched any label containing the
+  // word "type", which quietly captured Blood Type instead.
   const fieldKeys = {
     number: 'driver_license_number',
     name: 'driver_license_name',
     dob: 'driver_license_dob',
     address: 'driver_license_address',
     class: 'driver_license_class',
-    type: 'driver_license_type',
     issueDate: 'driver_license_issue_date',
     expiryDate: 'driver_license_expiry_date',
     restrictions: 'driver_license_restrictions',
@@ -35,15 +39,6 @@ export default function DriverLicenseEditor({ doc, ocrData = [], onClose, onSave
     officialReceipt: 'driver_license_official_receipt'
   };
 
-  // Helper to find an ocr item by likely fieldId or label substring
-  const findOcr = (candidates = []) => {
-    for (const c of candidates) {
-      const found = docOcr.find(i => (i.fieldId || '').toLowerCase() === c.toLowerCase() || (i.label || '').toLowerCase().includes(c.toLowerCase()));
-      if (found) return found;
-    }
-    return null;
-  };
-
   // initial values from OCR if available
   const [values, setValues] = useState({
     [fieldKeys.number]: '',
@@ -51,7 +46,6 @@ export default function DriverLicenseEditor({ doc, ocrData = [], onClose, onSave
     [fieldKeys.dob]: '',
     [fieldKeys.address]: '',
     [fieldKeys.class]: '',
-    [fieldKeys.type]: '',
     [fieldKeys.issueDate]: '',
     [fieldKeys.expiryDate]: '',
     [fieldKeys.restrictions]: '',
@@ -62,36 +56,26 @@ export default function DriverLicenseEditor({ doc, ocrData = [], onClose, onSave
   });
 
   useEffect(() => {
-    // best-effort mapping from common OCR fieldIds/labels into editor keys
-    const mapping = [
-      { keys: ['license_no', 'license_number', 'lic_no', 'license no', 'driver_license_number'], dest: fieldKeys.number },
-      { keys: ['name', 'driver_name', 'name_on_license', 'license_name'], dest: fieldKeys.name },
-      { keys: ['dob', 'date_of_birth', 'birthdate'], dest: fieldKeys.dob },
-      { keys: ['address', 'resident', 'address_on_license'], dest: fieldKeys.address },
-      { keys: ['class', 'license_class', 'lic_class'], dest: fieldKeys.class },
-      { keys: ['type', 'license_type', 'professional', 'non-professional'], dest: fieldKeys.type },
-      { keys: ['issue_date', 'date_of_issue', 'issued'], dest: fieldKeys.issueDate },
-      { keys: ['expiry', 'expiry_date', 'valid_until', 'expiration'], dest: fieldKeys.expiryDate },
-      { keys: ['restriction', 'restrictions'], dest: fieldKeys.restrictions },
-      { keys: ['place_of_issue', 'lto_office', 'place'], dest: fieldKeys.placeOfIssue },
-      { keys: ['control_no', 'control number', 'serial'], dest: fieldKeys.controlNo },
-      { keys: ['blood_type', 'blood'], dest: fieldKeys.bloodType },
-      { keys: ['official_receipt', 'or_no', 'or number', 'official receipt'], dest: fieldKeys.officialReceipt }
-    ];
+    // Match on fieldId EXACTLY.
+    //
+    // This used to be a list of fuzzy candidates tested against both fieldId
+    // and a substring of the human label, which mis-fired: the candidate 'type'
+    // matched the label "Blood Type", and 'place' matched "Place of Issue".
+    // The ids emitted by services/ocrAdapter.js come straight from
+    // data/ocrSchema.js and are already exactly these `driver_license_*` keys,
+    // so there is nothing to guess at.
+    const editableIds = new Set(Object.values(fieldKeys));
 
     const next = { ...values };
-    mapping.forEach(m => {
-      const found = findOcr(m.keys);
-      if (found) {
-        next[m.dest] = found.correctedValue ?? found.extractedValue ?? next[m.dest] ?? '';
-      }
+    docOcr.forEach(item => {
+      if (!editableIds.has(item.fieldId)) return;
+      next[item.fieldId] = item.correctedValue ?? item.extractedValue ?? '';
     });
 
-    // additionally prefill name heuristically
-    if (!next[fieldKeys.name]) {
-      const nameHint = doc?.imageLabel || doc?.fileName || doc?.title;
-      if (nameHint) next[fieldKeys.name] = nameHint.split(/[-_]/).slice(0,2).join(' ').replace(/\.[a-z]+$/i,'');
-    }
+    // NOTE: no filename-derived guess for the name. It used to fall back to
+    // splitting the filename, which put things like "sample application" in the
+    // Name on License box and made a failed extraction look like a successful
+    // one. A blank box is honest.
 
     setValues(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -107,11 +91,6 @@ export default function DriverLicenseEditor({ doc, ocrData = [], onClose, onSave
     }
     onSave && onSave(values);
     runAiAnalysis && runAiAnalysis(`Driver license edited for document ${doc?.fileName || doc?.id}`);
-  };
-
-  const canPreview = () => {
-    const url = doc?.imageUrl || doc?.fileUrl || '';
-    return /^https?:\/\//i.test(url);
   };
 
   return (
@@ -152,6 +131,7 @@ export default function DriverLicenseEditor({ doc, ocrData = [], onClose, onSave
             <div>
               <label className="text-[11px] font-semibold text-slate-600">Issue Date</label>
               <input type="text" value={values[fieldKeys.issueDate]} onChange={(e) => handleChange(fieldKeys.issueDate, e.target.value)} placeholder="MM/DD/YYYY" className="w-full border rounded px-2 py-2 text-sm" />
+              <div className="text-[9px] text-slate-400 mt-0.5">Often not printed on the card — leave blank if absent.</div>
             </div>
             <div>
               <label className="text-[11px] font-semibold text-slate-600">Expiry Date</label>

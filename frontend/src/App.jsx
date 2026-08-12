@@ -9,8 +9,25 @@ import OcrCorrectionModal from './components/modals/OcrCorrectionModal';
 import DenyClaimModal from './components/modals/DenyClaimModal';
 import EditPayoutModal from './components/modals/EditPayoutModal';
 import EmailModal from './components/modals/EmailModal';
-import { fetchClaims, uploadDocument, replaceDocument, saveOcrCorrections } from './services/api';
+import {
+  fetchClaims,
+  uploadDocument,
+  replaceDocument,
+  deleteDocument,
+  saveOcrCorrections,
+  updateClaim
+} from './services/api';
 import { buildOcrPatch } from './services/ocrAdapter';
+
+/**
+ * Key for the adjuster's per-requirement tickbox state.
+ *
+ * Module scope on purpose: the load effect below needs it, and the guards in
+ * section 4 return early on the very first render — so a `const` declared
+ * inside the component would still be in its temporal dead zone when that
+ * effect's callback runs.
+ */
+const checklistKey = (claimId, requirement) => `${claimId}::${requirement}`;
 
 /**
  * Application root.
@@ -88,15 +105,27 @@ export default function App() {
 
         // The API returns an array; the UI works with an id-keyed object.
         const formattedData = {};
+        const restoredChecklist = {};
         data.forEach(claim => {
           formattedData[claim.id] = claim;
+          // Rebuild the tickbox state from what was saved. Without this the
+          // checklist looked empty again after every refresh.
+          (claim.confirmedRequirements || []).forEach(req => {
+            restoredChecklist[checklistKey(claim.id, req)] = true;
+          });
         });
         setClaimsDb(formattedData);
+        setChecklistState(restoredChecklist);
 
         // Preselect the first claim so the workspace has something to show.
         if (data.length > 0) {
           setSelectedClaimId(data[0].id);
-          setApprovedPayout(data[0].recommendedPayout || 0);
+          // An adjuster-approved payout takes precedence over the AI's
+          // suggestion — otherwise a saved override is invisible after reload.
+          setApprovedPayout(data[0].approvedPayout ?? data[0].recommendedPayout ?? 0);
+          setOverrideReason(data[0].status === 'Denied' ? '' : (data[0].decisionReason || ''));
+          setDenialReason(data[0].status === 'Denied' ? (data[0].decisionReason || '') : '');
+          setIsModified(data[0].status === 'Completed' && Boolean(data[0].decisionReason));
         }
 
         setIsLoading(false);
@@ -139,6 +168,11 @@ export default function App() {
     if (el) el.scrollIntoView({ behavior: 'smooth' });
   };
 
+  /** Pushes one entry onto the activity feed. `type` is info/success/warning/danger. */
+  const logActivity = (type, text) => {
+    setActivityLogs(prev => [{ id: Date.now() + Math.random(), type, text, time: 'Just now' }, ...prev]);
+  };
+
   const runAiAnalysis = (reason) => {
     setIsAnalyzing(true);
     setActivityLogs(prev => [
@@ -161,10 +195,12 @@ export default function App() {
     setSelectedClaimId(id);
     const target = claimsDb[id];
     if (target) {
-      setApprovedPayout(target.recommendedPayout || 0);
-      setIsModified(false);
-      setOverrideReason('');
-      setDenialReason('');
+      // A saved adjuster payout beats the AI's recommendation; the saved reason
+      // is a denial reason on a denied claim and an override note otherwise.
+      setApprovedPayout(target.approvedPayout ?? target.recommendedPayout ?? 0);
+      setIsModified(target.status === 'Completed' && Boolean(target.decisionReason));
+      setOverrideReason(target.status === 'Denied' ? '' : (target.decisionReason || ''));
+      setDenialReason(target.status === 'Denied' ? (target.decisionReason || '') : '');
       setEmailSent(false);
       if (target.ocrData && target.ocrData.length > 0) {
         setActiveOcrFieldId(target.ocrData[0].fieldId);
@@ -177,16 +213,35 @@ export default function App() {
   // ---------------------------------------------------------------------
   // 8. CHECKLIST HANDLERS
   // ---------------------------------------------------------------------
-  const checklistKey = (claimId, requirement) => `${claimId}::${requirement}`;
-
   const isChecklistChecked = (requirement) =>
     !!checklistState[checklistKey(selectedClaimId, requirement)];
 
-  const handleChecklistToggle = (requirement, checked) => {
-    setChecklistState(prev => ({
-      ...prev,
-      [checklistKey(selectedClaimId, requirement)]: checked
-    }));
+  /**
+   * Ticking a requirement now persists.
+   *
+   * The tickbox is updated optimistically so it doesn't lag behind the click,
+   * then reverted if the save fails — a checkbox that silently un-ticks itself
+   * is far less confusing than one that stays ticked over a failed write.
+   */
+  const handleChecklistToggle = async (requirement, checked) => {
+    const claimId = selectedClaimId;
+    const key = checklistKey(claimId, requirement);
+
+    setChecklistState(prev => ({ ...prev, [key]: checked }));
+
+    const current = claimsDb[claimId]?.confirmedRequirements || [];
+    const next = checked
+      ? [...new Set([...current, requirement])]
+      : current.filter(item => item !== requirement);
+
+    try {
+      const updatedClaim = await updateClaim(claimId, { confirmedRequirements: next });
+      setClaimsDb(prev => ({ ...prev, [claimId]: updatedClaim }));
+    } catch (err) {
+      setChecklistState(prev => ({ ...prev, [key]: !checked }));
+      console.error(err);
+      logActivity('danger', `Could not save the checklist tick: ${err.message}`);
+    }
   };
 
   const openFormEditor = (docId, requirement) => {
@@ -253,9 +308,9 @@ const closeLicenseEditor = () => setLicenseEditorTarget({ docId: null, requireme
 
 const handleSaveLicenseFields = async (licensePayload) => {
   // licensePayload keys: driver_license_number, driver_license_class, ...
-  // Two of them (driver_license_type, driver_license_issue_date) are commented
-  // out in the Mongoose schema; buildOcrPatch drops them rather than sending
-  // fields the backend would silently discard.
+  // All of them are now declared in both the Mongoose schema and
+  // data/ocrSchema.js, including driver_license_issue_date — which buildOcrPatch
+  // used to drop silently, making the Issue Date box impossible to save.
   closeLicenseEditor();
   await persistOcrEdits(licensePayload, 'driversLicense', `Adjuster saved license edits on ${selectedClaimId}`);
 };
@@ -263,17 +318,64 @@ const handleSaveLicenseFields = async (licensePayload) => {
   // ---------------------------------------------------------------------
   // 9. DOCUMENT UPLOAD HANDLERS
   // ---------------------------------------------------------------------
+  /**
+   * Opens the (single, shared) file picker on behalf of one requirement row.
+   *
+   * `documentType` is the requirement label that was clicked, and IT WINS.
+   * The previous version preferred the existing document's type
+   * (`existing?.documentType || documentType`), which meant that when a row
+   * showed the wrong document — as the Official Receipt row did for everything —
+   * uploading from it filed the new file under the OTHER row's type and
+   * overwrote that document instead.
+   */
   const triggerFilePicker = (docId = null, documentType = '') => {
     setReplaceDocId(docId);
-    if (docId) {
-      const existing = (claimsDb[selectedClaimId]?.documents || []).find(doc => doc.id === docId);
-      setUploadDocumentType(existing?.documentType || documentType || '');
-    } else {
-      setUploadDocumentType(documentType || '');
+    setUploadDocumentType(documentType || '');
+
+    if (documentType && docId) {
+      const proceed = window.confirm(
+        `Replace the file filed under "${documentType}"?\n\n` +
+        'The old file is deleted and the new one is re-read by the AI. Any values ' +
+        'you have already corrected are kept — only blank fields get filled in.\n\n' +
+        'To re-extract everything from scratch instead, cancel and use Remove first.'
+      );
+      if (!proceed) {
+        setReplaceDocId(null);
+        setUploadDocumentType('');
+        return;
+      }
     }
+
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
       fileInputRef.current.click();
+    }
+  };
+
+  /** Deletes a document outright — file, record and its extracted fields. */
+  const handleDeleteDocument = async (docId, requirement) => {
+    const claimId = selectedClaimId;
+    const doc = (claimsDb[claimId]?.documents || []).find(d => d.id === docId);
+    if (!doc) return;
+
+    const confirmed = window.confirm(
+      `Remove "${doc.fileName || doc.title}" from ${requirement || 'this claim'}?\n\n` +
+      'The file is deleted from the server and the AI-extracted fields for this ' +
+      'document are cleared. This cannot be undone.'
+    );
+    if (!confirmed) return;
+
+    setIsAnalyzing(true);
+    try {
+      const updatedClaim = await deleteDocument(claimId, docId);
+      setClaimsDb(prev => ({ ...prev, [claimId]: updatedClaim }));
+      logActivity('warning', `Document "${doc.fileName || doc.title}" removed from ${claimId}.`);
+    } catch (err) {
+      console.error(err);
+      logActivity('danger', `Could not remove the document: ${err.message}`);
+      alert(`Could not remove the document: ${err.message}`);
+    } finally {
+      setIsAnalyzing(false);
     }
   };
 
@@ -297,20 +399,22 @@ const handleSaveLicenseFields = async (licensePayload) => {
     const targetDocId = replaceDocId;
     const isReplacing = Boolean(targetDocId);
 
+    // The requirement row the adjuster clicked wins over the type already on
+    // the document. See triggerFilePicker for why that ordering matters.
     const existingDoc = targetDocId
       ? (claimsDb[claimId]?.documents || []).find(doc => doc.id === targetDocId)
       : null;
-   const documentType = existingDoc?.documentType || uploadDocumentType || '';
+    const documentType = uploadDocumentType || existingDoc?.documentType || '';
 
-if (!documentType) {
-  alert('This upload must be started from a specific claim requirement.');
-  event.target.value = '';
-  return;
-}
+    if (!documentType) {
+      alert('This upload must be started from a specific claim requirement.');
+      event.target.value = '';
+      return;
+    }
 
-setIsAnalyzing(true);
+    setIsAnalyzing(true);
 
-try {
+    try {
       const updatedClaim = isReplacing
         ? await replaceDocument(claimId, targetDocId, file, documentType)
         : await uploadDocument(claimId, file, documentType);
@@ -325,20 +429,27 @@ try {
         setTimeout(() => scrollToDoc(savedDoc.id), 50);
       }
 
+      // The upload succeeds even when the AI extraction doesn't, so say plainly
+      // which of the two happened rather than showing a success either way.
+      if (updatedClaim.ocrWarning) {
+        logActivity('warning', `"${file.name}" saved to ${documentType}, but the AI could not read it: ${updatedClaim.ocrWarning}`);
+      }
+
+      const summary = updatedClaim.ocrSummary;
+      if (summary && (summary.preserved.length || summary.filled.length)) {
+        logActivity(
+          'info',
+          `Re-analysis of ${documentType}: filled ${summary.filled.length} blank field(s)` +
+          (summary.preserved.length ? `, kept ${summary.preserved.length} value(s) you had already corrected.` : '.')
+        );
+      }
+
       // Leaves isAnalyzing on for its own 650ms window, then clears it.
       runAiAnalysis(isReplacing ? `document replaced with ${file.name}` : `document ${file.name} uploaded`);
     } catch (err) {
       setIsAnalyzing(false);
       console.error(err);
-      setActivityLogs(prev => [
-        {
-          id: Date.now(),
-          type: 'danger',
-          text: `Upload of "${file.name}" failed: ${err.message}`,
-          time: 'Just now'
-        },
-        ...prev
-      ]);
+      logActivity('danger', `Upload of "${file.name}" failed: ${err.message}`);
       alert(`Upload failed: ${err.message}`);
     } finally {
       setReplaceDocId(null);
@@ -474,36 +585,65 @@ try {
   // ---------------------------------------------------------------------
   // 11. DECISION HANDLERS
   // ---------------------------------------------------------------------
-  const handleDirectApprove = () => {
-    setClaimsDb(prev => ({
-      ...prev,
-      [selectedClaimId]: { ...prev[selectedClaimId], status: 'Completed' }
-    }));
+  /**
+   * Writes a decision to MongoDB and takes the server's copy of the claim.
+   *
+   * Every one of these used to be a local setClaimsDb call, which is why the
+   * dashboard forgot an approval the moment the page was refreshed. Returns
+   * true on success so callers know whether to close their modal.
+   */
+  const persistDecision = async (patch, activityText) => {
+    const claimId = selectedClaimId;
+    setIsAnalyzing(true);
+    try {
+      const updatedClaim = await updateClaim(claimId, patch);
+      setClaimsDb(prev => ({ ...prev, [claimId]: updatedClaim }));
+      logActivity('success', activityText);
+      return true;
+    } catch (err) {
+      console.error(err);
+      logActivity('danger', `Could not save the decision: ${err.message}`);
+      alert(`Could not save: ${err.message}`);
+      return false;
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
-  const handleConfirmDenial = () => {
+  const handleDirectApprove = async () => {
+    await persistDecision(
+      { status: 'Completed', approvedPayout, decisionReason: '' },
+      `${selectedClaimId} approved at ₱${approvedPayout.toLocaleString()}.`
+    );
+  };
+
+  const handleConfirmDenial = async () => {
     if (!denialReason.trim()) {
       alert('Please enter a clear reason for denying this claim for regulatory compliance.');
       return;
     }
+    const saved = await persistDecision(
+      { status: 'Denied', approvedPayout: 0, decisionReason: denialReason },
+      `${selectedClaimId} denied: "${denialReason}".`
+    );
+    if (!saved) return;
+
     setApprovedPayout(0);
-    setClaimsDb(prev => ({
-      ...prev,
-      [selectedClaimId]: { ...prev[selectedClaimId], status: 'Denied' }
-    }));
     setIsDenyModalOpen(false);
   };
 
-  const handleSaveAndApproveEdit = () => {
+  const handleSaveAndApproveEdit = async () => {
     if (!overrideReason.trim()) {
       alert('Please enter your reason / comment for modifying the payout amount.');
       return;
     }
+    const saved = await persistDecision(
+      { status: 'Completed', approvedPayout, decisionReason: overrideReason },
+      `${selectedClaimId} approved with an adjusted payout of ₱${approvedPayout.toLocaleString()}.`
+    );
+    if (!saved) return;
+
     setIsModified(true);
-    setClaimsDb(prev => ({
-      ...prev,
-      [selectedClaimId]: { ...prev[selectedClaimId], status: 'Completed' }
-    }));
     setIsModalOpen(false);
   };
 
@@ -527,6 +667,7 @@ try {
       {currentScreen === 'dashboard' && (
         <Dashboard
           claims={filteredClaims}
+          allClaims={Object.values(claimsDb)}
           activeTab={activeTab}
           onTabChange={setActiveTab}
           onSelectClaim={openClaimDetail}
@@ -547,6 +688,7 @@ try {
             fileInputRef,
             onFileSelected: handleDocumentUpload,
             onUploadClick: triggerFilePicker,
+            onDeleteDocument: handleDeleteDocument,
             isChecklistChecked,
             onToggleRequirement: handleChecklistToggle,
             onViewDocument: setActiveDocId,

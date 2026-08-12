@@ -8,6 +8,30 @@
 
 // documentpreview.jsx
 export default function DocumentPreview({ doc, ocrData, onView, onZoomImage, onEditOcr }) {
+  const isImage = doc.type === 'image_card' || doc.type === 'uploaded_image';
+
+  /**
+   * "View" used to call onView(doc.id) only, which sets `activeDocId` — a piece
+   * of state nothing reads. The button therefore did nothing at all. It still
+   * reports the selection upward, but now it also actually shows the file:
+   * images open in the lightbox, everything else in a new browser tab.
+   */
+  const handleView = (e) => {
+    e.stopPropagation();
+    onView?.(doc.id);
+
+    if (isImage) {
+      onZoomImage?.({
+        url: doc.imageUrl || doc.fileUrl,
+        label: doc.imageLabel || doc.fileName || doc.title,
+        caption: doc.caption || ''
+      });
+      return;
+    }
+
+    if (doc.fileUrl) window.open(doc.fileUrl, '_blank', 'noopener,noreferrer');
+  };
+
   // Array.isArray, not `|| []`: claims loaded before services/ocrAdapter.js
   // flattens them carry ocrData as a nested OBJECT, and .filter() on an object
   // throws — blanking the whole screen right after an upload.
@@ -35,11 +59,9 @@ const docOcrFields = usesDedicatedEditor
         </div>
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onView(doc.id);
-          }}
+          onClick={handleView}
           className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 px-2 py-1 rounded font-bold flex-shrink-0"
+          title={isImage ? 'Open in the image viewer' : 'Open the file in a new tab'}
         >
           View
         </button>
@@ -55,7 +77,7 @@ const docOcrFields = usesDedicatedEditor
   </div>
 )}
 
-      {(doc.type === 'image_card' || doc.type === 'uploaded_image') && (
+      {isImage && (
         <div
           className="border border-slate-300 rounded-lg overflow-hidden bg-slate-100 cursor-pointer"
           onClick={() => onZoomImage({

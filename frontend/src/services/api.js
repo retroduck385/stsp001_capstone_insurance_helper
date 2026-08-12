@@ -45,7 +45,15 @@ export function normaliseClaim(claim) {
       }
     : claim;
 
-  return { ...withFlatOcrData(withUrls), ocrDataRaw: claim.ocrData };
+  // `ocrWarning` / `ocrSummary` are per-response notes from an upload, not part
+  // of the stored claim. They are carried through here so App.jsx can report
+  // them, then dropped on the next fetch.
+  return {
+    ...withFlatOcrData(withUrls),
+    ocrDataRaw: claim.ocrData,
+    ocrWarning: claim.ocrWarning || null,
+    ocrSummary: claim.ocrSummary || null
+  };
 }
 
 /**
@@ -73,6 +81,25 @@ export async function fetchClaims() {
   if (!response.ok) await throwApiError(response, 'Failed to fetch claims from server');
   const claims = await response.json();
   return claims.map(normaliseClaim);
+}
+
+/**
+ * PATCH /api/claims/:claimId — the adjuster's decision and checklist.
+ *
+ * `patch` may contain only: status, approvedPayout, decisionReason, isFlagged,
+ * flagSummary, confirmedRequirements. The backend rejects anything else with a
+ * 400 rather than ignoring it, so a typo shows up straight away.
+ *
+ * Resolves to the full updated claim.
+ */
+export async function updateClaim(claimId, patch) {
+  const response = await fetch(`${API_BASE}/api/claims/${encodeURIComponent(claimId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch)
+  });
+  if (!response.ok) await throwApiError(response, 'Could not save the change');
+  return normaliseClaim(await response.json());
 }
 
 // ---------------------------------------------------------------------------
@@ -109,6 +136,12 @@ export async function uploadDocument(claimId, file, documentType) {
 
 /**
  * PUT /api/claims/:claimId/documents/:docId — replace an existing document.
+ *
+ * The server swaps the file, deletes the old one from disk, and re-runs the AI
+ * extraction — merging it so values the adjuster already corrected survive and
+ * only blanks are filled. The resolved claim carries `ocrSummary`
+ * { preserved, filled } describing exactly that.
+ *
  * Resolves to the full updated claim.
  */
 export async function replaceDocument(claimId, docId, file, documentType) {
@@ -118,6 +151,22 @@ export async function replaceDocument(claimId, docId, file, documentType) {
     body: buildUploadBody(file, documentType)
   });
   if (!response.ok) await throwApiError(response, 'Replace failed');
+  return normaliseClaim(await response.json());
+}
+
+/**
+ * DELETE /api/claims/:claimId/documents/:docId — remove a document entirely.
+ *
+ * Deletes the file from disk, the record from the claim, and the extracted
+ * fields for that document type. Upload after a delete therefore gives a clean
+ * re-extract, which Replace deliberately does not.
+ *
+ * Resolves to the full updated claim.
+ */
+export async function deleteDocument(claimId, docId) {
+  const url = `${API_BASE}/api/claims/${encodeURIComponent(claimId)}/documents/${encodeURIComponent(docId)}`;
+  const response = await fetch(url, { method: 'DELETE' });
+  if (!response.ok) await throwApiError(response, 'Could not remove the document');
   return normaliseClaim(await response.json());
 }
 

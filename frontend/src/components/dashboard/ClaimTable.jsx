@@ -8,6 +8,23 @@ const TABS = [
   { id: 'Completed', label: '✓ Processed & Completed' }
 ];
 
+// Colour per claim status. Anything unrecognised falls back to the neutral
+// style rather than rendering an unstyled pill.
+const STATUS_STYLES = {
+  'In Assessment': 'bg-blue-50 text-blue-700 border-blue-200',
+  Completed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  Denied: 'bg-red-50 text-red-700 border-red-200'
+};
+
+function StatusPill({ status }) {
+  const style = STATUS_STYLES[status] || 'bg-slate-100 text-slate-600 border-slate-200';
+  return (
+    <span className={`inline-block text-[10px] font-bold px-2 py-1 rounded border whitespace-nowrap ${style}`}>
+      {status || 'Unknown'}
+    </span>
+  );
+}
+
 /**
  * Tab strip + the claims table. Rows are already filtered by App.jsx.
  */
@@ -34,6 +51,7 @@ export default function ClaimTable({ claims, activeTab, onTabChange, onSelectCla
             <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs font-semibold uppercase">
               <th className="py-3 px-4">Claim ID & Policyholder</th>
               <th className="py-3 px-4">Vehicle</th>
+              <th className="py-3 px-4">Status</th>
               <th className="py-3 px-4">Claimed Amount</th>
               <th className="py-3 px-4">Flags & Summary</th>
               <th className="py-3 px-4 text-center">Docs</th>
@@ -48,6 +66,7 @@ export default function ClaimTable({ claims, activeTab, onTabChange, onSelectCla
                   <div className="text-xs text-slate-500">{claim.policyholder}</div>
                 </td>
                 <td className="py-3.5 px-4 text-xs">{claim.vehicle}</td>
+                <td className="py-3.5 px-4"><StatusPill status={claim.status} /></td>
                 <td className="py-3.5 px-4 font-semibold text-xs">₱{(claim.claimedAmount || 0).toLocaleString()}</td>
                 <td className="py-3.5 px-4 text-xs font-bold">{claim.flagSummary}</td>
                 <td className="py-3.5 px-4 text-center">
@@ -56,7 +75,17 @@ export default function ClaimTable({ claims, activeTab, onTabChange, onSelectCla
                   </span>
                 </td>
                 <td className="py-3.5 px-4 text-right">
-                  <button className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-3 py-1.5 rounded transition shadow-sm">
+                  {/* This had no onClick and only worked because the click
+                      bubbled up to the row — so focusing it and pressing Enter
+                      did nothing. It now handles its own activation. */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelectClaim(claim.id);
+                    }}
+                    className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-3 py-1.5 rounded transition shadow-sm"
+                  >
                     Open Workspace →
                   </button>
                 </td>

@@ -17,29 +17,6 @@ app.use('/uploads', express.static(uploadsDir));
 
 app.get('/api/health',(req,res)=>res.json({ok:true,service:'InsureCopilot API'}));
 
-// const claimSchema = new mongoose.Schema({
-//   id:{type:String,required:true,unique:true}, // matches your existing docs, e.g. "CLM-2026-8891"
-//   policyholder:String,
-//   email:String,
-//   driverName:String,
-//   vehicle:String,
-//   claimType:{type:String,enum:['Own Damage','Third-Party Property Damage','Third-Party Bodily Injury / Death']},
-//   status:String,
-//   category:String,
-//   claimedAmount:Number,
-//   recommendedPayout:Number,
-//   isFlagged:Boolean,
-//   flagSummary:String,
-//   docsCount:Number,
-//   documents:[mongoose.Schema.Types.Mixed],
-//   ocrData:[mongoose.Schema.Types.Mixed],
-//   rules:[mongoose.Schema.Types.Mixed],
-//   citation:String
-// },{
-//   timestamps:true,
-//   id:false, // disable Mongoose's default `id` virtual so it doesn't collide with our real `id` field
-// });
-
 const claimSchema = new mongoose.Schema({
   id: { type: String, required: true, unique: true }, // e.g. "CLM-2026-8891"
   policyholder: String,
@@ -53,13 +30,25 @@ const claimSchema = new mongoose.Schema({
   status: String,
   category: String,
   claimedAmount: Number,
-  recommendedPayout: Number,
+  recommendedPayout: Number,   // what the AI suggested
   isFlagged: Boolean,
   flagSummary: String,
   docsCount: Number,
   documents: [mongoose.Schema.Types.Mixed],
   rules: [mongoose.Schema.Types.Mixed],
   citation: String,
+
+  // --- ADJUSTER DECISION -------------------------------------------------
+  // These four used to live only in React state, so approving or denying a
+  // claim looked like it worked until the page was refreshed and everything
+  // reverted. They are written by PATCH /api/claims/:claimId below.
+  approvedPayout: Number,      // what the adjuster actually signed off
+  decisionReason: String,      // the denial reason, or the payout-override note
+  decidedAt: Date,
+  // The requirement labels the adjuster has ticked off. Stored as labels rather
+  // than indexes so reordering claimRequirements.js can't shift the ticks onto
+  // the wrong rows.
+  confirmedRequirements: [String],
 
   // All fields initialize as null. The OCR will inject data here.
   ocrData: {
@@ -156,7 +145,12 @@ const claimSchema = new mongoose.Schema({
       driver_license_address: { type: String, default: null },
       driver_license_class: { type: String, default: null },
       // driver_license_type: { type: String, default: null },
-      // driver_license_issue_date: { type: String, default: null },
+      // The Issue Date box in DriverLicenseEditor has always existed, but this
+      // field was commented out — so PATCH /ocr had nowhere to store the value
+      // and the input was dead. Declared here, it now round-trips. Must stay in
+      // step with frontend/src/data/ocrSchema.js, which is what makes the value
+      // readable back out.
+      driver_license_issue_date: { type: String, default: null },
       driver_license_expiry_date: { type: String, default: null },
       driver_license_restrictions: { type: String, default: null },
       driver_license_place_of_issue: { type: String, default: null },
@@ -240,6 +234,83 @@ const Claim=mongoose.model('Claim',claimSchema);
 app.get('/api/claims',async(req,res)=>{
   try{res.json(await Claim.find().sort({createdAt:-1}));}
   catch(e){res.status(500).json({message:e.message});}
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/claims/:claimId  — the adjuster's decision + checklist
+// ---------------------------------------------------------------------------
+// Approve / Deny / Edit Payout and the requirement tickboxes used to be React
+// state only, so a refresh threw them away. This is the endpoint that makes
+// them stick.
+//
+// Whitelisted, like PATCH /ocr: an unknown key is rejected rather than ignored,
+// so a typo surfaces immediately instead of looking like a save that didn't
+// take. Everything else about a claim (documents, ocrData) has its own route
+// and is deliberately NOT writable here.
+const PATCHABLE_CLAIM_FIELDS = [
+  'status', 'approvedPayout', 'decisionReason',
+  'isFlagged', 'flagSummary', 'confirmedRequirements'
+];
+
+const CLAIM_STATUSES = ['In Assessment', 'Completed', 'Denied'];
+
+app.patch('/api/claims/:claimId', async (req, res) => {
+  const { claimId } = req.params;
+  const patch = req.body;
+
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch) || Object.keys(patch).length === 0) {
+    return res.status(400).json({
+      message: `Body must be an object with at least one of: ${PATCHABLE_CLAIM_FIELDS.join(', ')}.`
+    });
+  }
+
+  const unknown = Object.keys(patch).filter(key => !PATCHABLE_CLAIM_FIELDS.includes(key));
+  if (unknown.length > 0) {
+    return res.status(400).json({
+      message: `Cannot update field(s): ${unknown.join(', ')}. Allowed: ${PATCHABLE_CLAIM_FIELDS.join(', ')}.`
+    });
+  }
+
+  // `status` drives the dashboard tabs and the decision panel, so a typo would
+  // hide the claim from every tab. The schema types it as a bare String, so the
+  // check has to live here.
+  if ('status' in patch && !CLAIM_STATUSES.includes(patch.status)) {
+    return res.status(400).json({
+      message: `"${patch.status}" is not a valid status. Use one of: ${CLAIM_STATUSES.join(', ')}.`
+    });
+  }
+
+  if ('confirmedRequirements' in patch && !Array.isArray(patch.confirmedRequirements)) {
+    return res.status(400).json({ message: 'confirmedRequirements must be an array of requirement labels.' });
+  }
+
+  try {
+    const updates = { ...patch };
+
+    // Stamp the decision time whenever the claim is closed, so the audit trail
+    // doesn't depend on the frontend remembering to send it.
+    if (patch.status === 'Completed' || patch.status === 'Denied') {
+      updates.decidedAt = new Date();
+    }
+
+    const updatedClaim = await Claim.findOneAndUpdate(
+      { id: claimId },
+      { $set: updates },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedClaim) {
+      return res.status(404).json({ message: `No claim found with id "${claimId}".` });
+    }
+
+    return res.json(updatedClaim);
+  } catch (err) {
+    console.error('Claim update failed:', err);
+    if (err.name === 'CastError' || err.name === 'ValidationError') {
+      return res.status(400).json({ message: `Could not save: ${err.message}` });
+    }
+    return res.status(500).json({ message: err.message });
+  }
 });
 
 // Document upload / replace endpoints  → /api/claims/:claimId/documents

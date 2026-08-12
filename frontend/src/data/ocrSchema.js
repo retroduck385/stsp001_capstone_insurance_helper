@@ -115,15 +115,20 @@ export const OCR_SECTIONS = [
       { id: 'driver_license_dob', label: 'Date of Birth' },
       { id: 'driver_license_address', label: 'Address' },
       { id: 'driver_license_class', label: 'License Class / Codes' },
+      { id: 'driver_license_issue_date', label: 'Issue Date' },
       { id: 'driver_license_expiry_date', label: 'Expiry Date' },
       { id: 'driver_license_restrictions', label: 'Restrictions' },
       { id: 'driver_license_place_of_issue', label: 'Place of Issue' },
       { id: 'driver_license_control_no', label: 'Control Number' },
       { id: 'driver_license_blood_type', label: 'Blood Type' },
       { id: 'driver_license_official_receipt', label: 'Official Receipt No.' }
-      // NOTE: driver_license_type and driver_license_issue_date are commented
-      // out in the Mongoose schema (server.js), so they are omitted here. The
-      // DriverLicenseEditor renders no inputs for them either.
+      // NOTE: driver_license_type is still commented out in the Mongoose schema
+      // (server.js) and has no input in DriverLicenseEditor, so it stays out.
+      //
+      // driver_license_issue_date IS listed, deliberately. The editor has always
+      // rendered an Issue Date box, but the field was missing from this list —
+      // which meant flattenOcrData never read it back and buildOcrPatch dropped
+      // it on save. Listing it here is what makes that input functional.
     ]
   },
   {
@@ -275,14 +280,64 @@ export const OCR_SECTIONS = [
 export const SECTION_BY_KEY = Object.fromEntries(OCR_SECTIONS.map(s => [s.key, s]));
 
 /**
+ * Requirement label (lowercased) → ocrData section key.
+ *
+ * MUST mirror backend/src/data/requirementSections.js. When the two disagree,
+ * the backend writes the extraction into one section and the UI reads it from
+ * another, and the fields simply vanish.
+ *
+ * `null` means the requirement has no section in the Mongoose schema. That is a
+ * real entry, not a gap: the official-receipt row has no extractor, and mapping
+ * it to anything would make it steal another document's fields.
+ *
+ * WHY THIS EXISTS AT ALL: the old code keyword-searched documentType + title +
+ * fileName. The label "Official Receipt (Driver License / Vehicle OR other
+ * relevant OR)" literally contains "driver license", so every receipt resolved
+ * to the driversLicense section and the real licence showed "No OCR fields are
+ * currently associated with this document."
+ */
+export const SECTION_BY_REQUIREMENT = {
+  'completed motor claim form': 'motorClaimForm',
+  'police report or notarized affidavit / facts of accident': 'policeReportOrAffidavit',
+  'certificate of registration + official receipt': 'certificateOfRegistration',
+  "driver's license": 'driversLicense',
+  'official receipt (driver license / vehicle or other relevant or)': null,
+  'pictures of vehicle damages': 'vehicleDamagePictures',
+  'repair estimate': 'repairEstimate',
+  'certificate of no claim from third party insurer (if third party vehicle involved)': 'certificateOfNoClaim',
+  'authorization letter for vehicle use (if another person drove the vehicle)': 'authorizationLetter',
+  'completed motor claim form or police report or notarized affidavit / facts of accident': 'motorClaimForm',
+  'medical certificate (diagnosis and treatment)': 'medicalCertificate',
+  'hospital bill or statement of account (soa)': 'hospitalBillSOA',
+  'medical receipts': 'medicalReceipts',
+  'release of claim / notarized affidavit of desistance': 'releaseOfClaimOrDesistance',
+  'valid id of claimant (government-issued id with date of birth, signature, and photo)': 'validIdOfClaimant',
+  'death certificate (death claim only)': 'deathCertificate',
+  'birth certificate (death claim only)': 'birthCertificate',
+  'funeral / burial expenses (death claim only)': 'funeralExpenses'
+};
+
+/**
  * Which ocrData section does this document belong to?
- * Matches on `documentType` (the requirement it was uploaded against), falling
- * back to the filename/title for documents that predate documentType.
- * Returns the section key, or null when nothing matches.
+ *
+ * A document that carries a `documentType` is resolved through the exact map
+ * above and nothing else — no fuzzy matching, no falling through to another
+ * section when the map says `null`.
+ *
+ * The keyword search over title/filename is reserved for legacy documents that
+ * have no documentType at all.
+ *
+ * Returns the section key, or null.
  */
 export function sectionKeyForDocument(doc) {
   if (!doc) return null;
-  const haystack = `${doc.documentType || ''} ${doc.title || ''} ${doc.fileName || ''}`.toLowerCase();
+
+  const documentType = (doc.documentType || '').toLowerCase().trim();
+  if (documentType) {
+    return SECTION_BY_REQUIREMENT[documentType] ?? null;
+  }
+
+  const haystack = `${doc.title || ''} ${doc.fileName || ''}`.toLowerCase();
   const section = OCR_SECTIONS.find(s => s.documentKeywords.some(k => haystack.includes(k)));
   return section ? section.key : null;
 }

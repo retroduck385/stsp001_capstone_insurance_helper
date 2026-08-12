@@ -1,5 +1,22 @@
-anthropic
-dotenv
+# Python dependencies for the OCR and policy-rules scripts.
+#
+#   python -m venv venv
+#   venv\Scripts\activate        (Windows)   /   source venv/bin/activate  (mac/Linux)
+#   pip install -r requirements.txt
+
+# The Gemini client used by backend/scripts/gemini_ocr.py — this is what the
+# Node API shells out to on every document upload.
 google-genai
+
+# NOTE: the package is "python-dotenv", not "dotenv". They are different projects
+# and only this one provides `from dotenv import load_dotenv`, which every script
+# here uses. Installing plain `dotenv` leaves those imports failing.
+python-dotenv
+
+# Used by claude_ocr.py
+anthropic
+
+# Used by policy_loader.py / mongo_rules_store.py / policy_crosschecker.py
+pdfplumber
 pymongo
 langchain-text-splitters

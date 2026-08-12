@@ -1,27 +1,80 @@
 /**
- * The three KPI tiles across the top of the dashboard.
- * NOTE: the counts are still hardcoded placeholders — they are not derived
- * from claimsDb yet.
+ * The KPI tiles across the top of the dashboard.
+ *
+ * These used to be hardcoded ("4 Claims / 3 Claims / 1 Claim") and took no
+ * props at all, so they could — and did — contradict the table right below
+ * them. They are now derived from the same claim data, using the SAME
+ * predicates as App.jsx's `filteredClaims`, and each tile switches to its tab.
+ *
+ * `claims` must be EVERY claim, not the filtered subset — otherwise each tile
+ * would only ever count the tab that is already open.
  */
-// dashboardstats.jsx
-export default function DashboardStats() {
+
+// One entry per dashboard tab. `id` must match the tab ids in ClaimTable.jsx
+// and the branches of `filteredClaims` in App.jsx.
+const TILES = [
+  {
+    id: 'All Open',
+    label: 'All Open Workload',
+    caption: 'Pending active review',
+    matches: (claim) => claim.status === 'In Assessment',
+    valueClass: 'text-blue-600',
+    captionClass: 'text-blue-600',
+    activeClass: 'border-blue-400 ring-1 ring-blue-200'
+  },
+  {
+    id: 'Flagged / Exceptions',
+    label: 'Flagged / Exceptions',
+    caption: 'Requires manual investigation',
+    matches: (claim) => claim.status === 'In Assessment' && claim.isFlagged,
+    valueClass: 'text-amber-600',
+    captionClass: 'text-amber-600',
+    activeClass: 'border-amber-400 ring-1 ring-amber-200'
+  },
+  {
+    id: 'Clean / Straight-Through',
+    label: 'Clean / Straight-Through',
+    caption: 'Ready for 1-click approval',
+    matches: (claim) => claim.status === 'In Assessment' && !claim.isFlagged,
+    valueClass: 'text-emerald-600',
+    captionClass: 'text-emerald-600',
+    activeClass: 'border-emerald-400 ring-1 ring-emerald-200'
+  },
+  {
+    id: 'Completed',
+    label: 'Processed & Completed',
+    caption: 'Approved or denied',
+    matches: (claim) => claim.status === 'Completed' || claim.status === 'Denied',
+    valueClass: 'text-slate-700',
+    captionClass: 'text-slate-500',
+    activeClass: 'border-slate-400 ring-1 ring-slate-200'
+  }
+];
+
+export default function DashboardStats({ claims = [], activeTab, onTabChange }) {
   return (
-    <div className="grid grid-cols-3 gap-4">
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-        <span className="text-xs text-slate-400 font-bold uppercase tracking-wider block">All Open Workload</span>
-        <span className="text-2xl font-extrabold text-blue-600">4 Claims</span>
-        <span className="text-xs text-blue-600 font-medium block mt-1">Pending active review</span>
-      </div>
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-        <span className="text-xs text-slate-400 font-bold uppercase tracking-wider block">Flagged / Exceptions</span>
-        <span className="text-2xl font-extrabold text-amber-600">3 Claims</span>
-        <span className="text-xs text-amber-600 font-medium block mt-1">Requires manual investigation</span>
-      </div>
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-        <span className="text-xs text-slate-400 font-bold uppercase tracking-wider block">Clean / Straight-Through</span>
-        <span className="text-2xl font-extrabold text-emerald-600">1 Claim</span>
-        <span className="text-xs text-emerald-600 font-medium block mt-1">Ready for 1-click approval</span>
-      </div>
+    <div className="grid grid-cols-4 gap-4">
+      {TILES.map((tile) => {
+        const count = claims.filter(tile.matches).length;
+        const isActive = activeTab === tile.id;
+
+        return (
+          <button
+            key={tile.id}
+            type="button"
+            onClick={() => onTabChange?.(tile.id)}
+            className={`bg-white p-4 rounded-xl border shadow-sm text-left transition hover:shadow-md hover:border-slate-300 ${
+              isActive ? tile.activeClass : 'border-slate-200'
+            }`}
+          >
+            <span className="text-xs text-slate-400 font-bold uppercase tracking-wider block">{tile.label}</span>
+            <span className={`text-2xl font-extrabold ${tile.valueClass}`}>
+              {count} {count === 1 ? 'Claim' : 'Claims'}
+            </span>
+            <span className={`text-xs font-medium block mt-1 ${tile.captionClass}`}>{tile.caption}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }
