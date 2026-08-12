@@ -28,6 +28,11 @@
         driverName: 'Jan Dela Cruz', // Mismatch due to bad OCR
         vehicle: '2023 Sedan (ABC 1234)',
         claimType: 'Own Damage',
+        // --- POLICY & EVENT DATES (ISO strings) ---
+        policyInceptionDate: '2026-01-15',
+        policyExpiryDate: '2027-01-14',
+        incidentDate: '2025-01-28', // OCR misread the handwritten year (should read 2026)
+        reportedDate: '2026-02-02',
         claimedAmount: 65000,
         recommendedPayout: 52000, // Deductible applied due to unnamed driver flag
         status: 'In Assessment',
@@ -65,6 +70,16 @@
             isLowConfidence: false,
             sourceDoc: 'doc-4',
             issueNote: 'Includes ₱10,000 battery replacement item.'
+          },
+          {
+            fieldId: 'incident_date',
+            label: 'Extracted Incident Date (Claim Form)',
+            extractedValue: '2025-01-28',
+            correctedValue: null,
+            confidence: 'Low (58%)',
+            isLowConfidence: true,
+            sourceDoc: 'doc-1',
+            issueNote: 'Handwritten year digit is smudged on the scanned form. Reads as 2025.'
           }
         ],
         documents: [
@@ -114,13 +129,18 @@
         driverName: 'Reign Batac',
         vehicle: '2021 Honda Civic (XYZ 9876)',
         claimType: 'Third-Party Property Damage',
+        // --- POLICY & EVENT DATES (ISO strings) ---
+        policyInceptionDate: '2026-01-20',
+        policyExpiryDate: '2027-01-19',
+        incidentDate: '2026-02-10',
+        reportedDate: '2026-02-12',
         claimedAmount: 128000,
         recommendedPayout: 0,
         status: 'In Assessment',
         isFlagged: true,
         category: 'Active',
         flagSummary: '🔴 Expired License & Commercial Use',
-        docsCount: 3,
+        docsCount: 4,
         ocrData: [
           {
             fieldId: 'driver_name',
@@ -141,6 +161,16 @@
             isLowConfidence: false,
             sourceDoc: 'doc-1',
             issueNote: 'License expired prior to incident date.'
+          },
+          {
+            fieldId: 'incident_date',
+            label: 'Extracted Incident Date (Claim Form)',
+            extractedValue: '2026-02-10',
+            correctedValue: null,
+            confidence: 'High (97%)',
+            isLowConfidence: false,
+            sourceDoc: 'doc-1',
+            issueNote: 'Clearly printed on the claim form.'
           }
         ],
         documents: [
@@ -167,6 +197,16 @@
               { item: '2. Side Airbag & Sensor Deployment', cost: 50000, excluded: false },
               { item: '3. Front Suspension & Axle Realignment', cost: 30000, excluded: false }
             ]
+          },
+          {
+            id: 'doc-4',
+            title: 'Police Report (PNP Traffic Investigation Report)',
+            type: 'uploaded_file',
+            fileUrl: 'file:///Users/melissaperez/Desktop/police_report.pdf',
+            fileName: 'police_report.pdf',
+            // Date of loss as recorded by the responding officer. Deliberately disagrees
+            // with the claim form's incidentDate (2026-02-10).
+            documentStatedIncidentDate: '2026-01-05'
           }
         ],
         rules: [
@@ -182,6 +222,11 @@
         driverName: 'Roberto Tan',
         vehicle: '2024 Mitsubishi Montero (NKR 4321)',
         claimType: 'Third-Party Bodily Injury / Death',
+        // --- POLICY & EVENT DATES (ISO strings) ---
+        policyInceptionDate: '2025-08-01',
+        policyExpiryDate: '2026-07-31',
+        incidentDate: '2026-03-04',
+        reportedDate: '2026-03-06',
         claimedAmount: 32000,
         recommendedPayout: 32000,
         status: 'In Assessment',
@@ -199,6 +244,16 @@
             isLowConfidence: false,
             sourceDoc: 'doc-1',
             issueNote: 'Exact match.'
+          },
+          {
+            fieldId: 'incident_date',
+            label: 'Extracted Incident Date (Claim Form)',
+            extractedValue: '2026-03-04',
+            correctedValue: null,
+            confidence: 'High (96%)',
+            isLowConfidence: false,
+            sourceDoc: 'doc-1',
+            issueNote: 'Machine-printed date field on the claim form.'
           }
         ],
         documents: [
@@ -231,6 +286,11 @@
         driverName: 'Maria Santos',
         vehicle: '2022 Toyota Vios (TUV 5678)',
         claimType: 'Own Damage',
+        // --- POLICY & EVENT DATES (ISO strings) ---
+        policyInceptionDate: '2025-06-10',
+        policyExpiryDate: '2026-06-09',
+        incidentDate: '2026-02-01',
+        reportedDate: '2026-02-20',
         claimedAmount: 85000,
         recommendedPayout: 0,
         status: 'In Assessment',
@@ -248,6 +308,16 @@
             isLowConfidence: false,
             sourceDoc: 'doc-1',
             issueNote: 'Natural peril event parsed.'
+          },
+          {
+            fieldId: 'incident_date',
+            label: 'Extracted Incident Date (Claim Form)',
+            extractedValue: '2026-02-01',
+            correctedValue: null,
+            confidence: 'High (95%)',
+            isLowConfidence: false,
+            sourceDoc: 'doc-1',
+            issueNote: 'Date of loss stated on the claim form.'
           }
         ],
         documents: [

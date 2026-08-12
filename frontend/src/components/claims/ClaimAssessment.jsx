@@ -1,4 +1,5 @@
 import PolicyRules from './PolicyRules';
+import ClaimIntegrity from './ClaimIntegrity';
 import DecisionPanel from './DecisionPanel';
 
 /**
@@ -13,7 +14,8 @@ export default function ClaimAssessment({
   overrideReason,
   denialReason,
   emailSent,
-  decision
+  decision,
+  fraud
 }) {
   const isDenied = activeClaim.status === 'Denied';
 
@@ -63,6 +65,16 @@ export default function ClaimAssessment({
       </div>
 
       <PolicyRules rules={activeClaim.rules} citation={activeClaim.citation} />
+
+      {/* Integrity sits between the policy verdict and the decision bar, so the
+          adjuster cannot reach Approve without having scrolled past it. The plan
+          called for it above the policy citation; the citation is rendered inside
+          PolicyRules, so it goes directly below that pair instead — same position
+          in the reading order that matters, without splitting that component. */}
+      <ClaimIntegrity
+        result={fraud?.result}
+        onViewEvidence={fraud?.onViewEvidence}
+      />
 
       <DecisionPanel
         activeClaim={activeClaim}

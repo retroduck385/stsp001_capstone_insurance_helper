@@ -5,8 +5,38 @@ const TABS = [
   { id: 'All Open', label: 'All Open' },
   { id: 'Flagged / Exceptions', label: '⚠️ Flagged / Exceptions' },
   { id: 'Clean / Straight-Through', label: '⚡ Clean / Straight-Through' },
+  { id: 'Integrity Review', label: '🔍 Integrity Review' },
   { id: 'Completed', label: '✓ Processed & Completed' }
 ];
+
+// Integrity band → chip style. Violet is reserved for integrity across the whole
+// app and is never used by the policy rules engine, so the two kinds of problem
+// can't be confused at a glance. See ClaimIntegrity.jsx for why that matters.
+const BAND_STYLES = {
+  CLEAR: 'bg-slate-100 text-slate-500 border-slate-200',
+  VERIFY: 'bg-amber-50 text-amber-700 border-amber-200',
+  REFER: 'bg-violet-100 text-violet-800 border-violet-300'
+};
+
+/** Compact integrity verdict for the table. Renders a dash before the engine has run. */
+function IntegrityChip({ result }) {
+  if (!result) return <span className="text-xs text-slate-300">—</span>;
+
+  const label = result.band === 'CLEAR' ? 'CLEAR' : `${result.score} ${result.band}`;
+
+  return (
+    <span
+      className={`inline-block text-[10px] font-bold px-2 py-1 rounded border whitespace-nowrap ${BAND_STYLES[result.band] || BAND_STYLES.CLEAR}`}
+      title={
+        result.hits.length
+          ? result.hits.map(h => `${h.code} ${h.label}`).join('\n')
+          : 'No integrity signals raised'
+      }
+    >
+      {label}
+    </span>
+  );
+}
 
 // Colour per claim status. Anything unrecognised falls back to the neutral
 // style rather than rendering an unstyled pill.
@@ -28,7 +58,7 @@ function StatusPill({ status }) {
 /**
  * Tab strip + the claims table. Rows are already filtered by App.jsx.
  */
-export default function ClaimTable({ claims, activeTab, onTabChange, onSelectClaim }) {
+export default function ClaimTable({ claims, fraudResults = {}, activeTab, onTabChange, onSelectClaim }) {
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col flex-1 overflow-hidden">
       <div className="border-b border-slate-200 bg-slate-50/50 px-4 pt-3 flex space-x-2">
@@ -54,6 +84,7 @@ export default function ClaimTable({ claims, activeTab, onTabChange, onSelectCla
               <th className="py-3 px-4">Status</th>
               <th className="py-3 px-4">Claimed Amount</th>
               <th className="py-3 px-4">Flags & Summary</th>
+              <th className="py-3 px-4">Integrity</th>
               <th className="py-3 px-4 text-center">Docs</th>
               <th className="py-3 px-4 text-right">Action</th>
             </tr>
@@ -69,6 +100,7 @@ export default function ClaimTable({ claims, activeTab, onTabChange, onSelectCla
                 <td className="py-3.5 px-4"><StatusPill status={claim.status} /></td>
                 <td className="py-3.5 px-4 font-semibold text-xs">₱{(claim.claimedAmount || 0).toLocaleString()}</td>
                 <td className="py-3.5 px-4 text-xs font-bold">{claim.flagSummary}</td>
+                <td className="py-3.5 px-4"><IntegrityChip result={fraudResults[claim.id]} /></td>
                 <td className="py-3.5 px-4 text-center">
                   <span className="inline-flex items-center space-x-1 text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200">
                     📄 {claim.docsCount}

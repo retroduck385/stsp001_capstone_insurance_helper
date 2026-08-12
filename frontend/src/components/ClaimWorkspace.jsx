@@ -17,6 +17,7 @@ export default function ClaimWorkspace({
   requirements,
   ocr,
   decision,
+  fraud,
   // form editor props (from App.jsx)
   formEditorTarget,
   onCloseFormEditor,
@@ -101,6 +102,7 @@ export default function ClaimWorkspace({
           emailSent={emailSent}
           ocr={ocr}
           decision={decision}
+          fraud={fraud}
         />
       )}
 

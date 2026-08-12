@@ -1,5 +1,5 @@
 // app.jsx
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 
 import Navbar from './components/Navbar';
 import Dashboard from './components/Dashboard';
@@ -18,6 +18,7 @@ import {
   updateClaim
 } from './services/api';
 import { buildOcrPatch } from './services/ocrAdapter';
+import { runFraudCheck, needsIntegrityReview } from './services/fraudEngine';
 
 /**
  * Key for the adjuster's per-requirement tickbox state.
@@ -140,6 +141,51 @@ export default function App() {
   }, []);
 
   // ---------------------------------------------------------------------
+  // 3b. FRAUD / INTEGRITY EVALUATION
+  //
+  // The FR-01 engine is a pure function of the claim, so its results are
+  // DERIVED rather than stored: recomputed whenever claimsDb changes, which
+  // means an OCR correction re-runs the check automatically. There is no
+  // "refresh the fraud results" step to forget, and no way for the badge on
+  // screen to disagree with the data behind it.
+  //
+  // The engine cannot touch the payout — it is not given a setter for one, and
+  // nothing below writes to approvedPayout or recommendedPayout. Fraud output
+  // changes routing and what the adjuster is shown. Nothing else.
+  // ---------------------------------------------------------------------
+  const fraudResults = useMemo(() => {
+    const results = {};
+    for (const claim of Object.values(claimsDb)) {
+      results[claim.id] = runFraudCheck(claim);
+    }
+    return results;
+  }, [claimsDb]);
+
+  // Announce band changes in the activity feed — an adjuster correcting a date
+  // needs to see that their correction moved the claim, not just that a badge
+  // silently changed colour. The ref holds the previous bands so the first
+  // evaluation of a claim (undefined → CLEAR) does not log anything.
+  const previousBands = useRef({});
+  useEffect(() => {
+    const entries = [];
+
+    for (const [claimId, result] of Object.entries(fraudResults)) {
+      const before = previousBands.current[claimId];
+      if (before && before !== result.band) {
+        entries.push({
+          id: Date.now() + Math.random(),
+          type: result.band === 'CLEAR' ? 'success' : 'warning',
+          text: `Integrity band changed ${before} → ${result.band} on ${claimId} (score ${result.score}).`,
+          time: 'Just now'
+        });
+      }
+      previousBands.current[claimId] = result.band;
+    }
+
+    if (entries.length) setActivityLogs(prev => [...entries, ...prev]);
+  }, [fraudResults]);
+
+  // ---------------------------------------------------------------------
   // 4. GUARDS — must stay below every hook above, or React throws
   //    "Rendered more hooks than during the previous render".
   // ---------------------------------------------------------------------
@@ -156,9 +202,19 @@ export default function App() {
     if (activeTab === 'All Open') return claim.status === 'In Assessment';
     if (activeTab === 'Flagged / Exceptions') return claim.status === 'In Assessment' && claim.isFlagged;
     if (activeTab === 'Clean / Straight-Through') return claim.status === 'In Assessment' && !claim.isFlagged;
+    // Integrity is its own axis, deliberately not folded into isFlagged: a claim
+    // can be perfectly covered by the policy and still need verifying, and a
+    // flagged claim can be entirely honest. Keeping the filters separate is what
+    // stops "not covered" and "needs checking" collapsing into one bucket.
+    if (activeTab === 'Integrity Review') {
+      return claim.status === 'In Assessment' && needsIntegrityReview(fraudResults[claim.id]);
+    }
     if (activeTab === 'Completed') return claim.status === 'Completed' || claim.status === 'Denied';
     return true;
   });
+
+  /** The integrity result for the claim currently open in the workspace. */
+  const activeFraud = fraudResults[activeClaim.id] || null;
 
   // ---------------------------------------------------------------------
   // 6. HELPERS
@@ -469,6 +525,19 @@ const handleSaveLicenseFields = async (licensePayload) => {
     }
   };
 
+  /**
+   * "View evidence" on an integrity hit.
+   *
+   * Deliberately routed through handleSelectField — the same handler the HITL
+   * field list uses — so the evidence button scrolls the document viewer and
+   * selects the field with exactly the behaviour the adjuster already knows.
+   * No second navigation path to keep in step with the first.
+   */
+  const handleViewFraudEvidence = (hit) => {
+    if (!hit?.evidence?.fieldId) return;
+    handleSelectField({ fieldId: hit.evidence.fieldId, sourceDoc: hit.evidence.sourceDoc });
+  };
+
   const openOcrModal = (field) => {
     setEditingOcrField(field);
     setOcrCorrectionValue(field.correctedValue || field.extractedValue);
@@ -668,6 +737,7 @@ const handleSaveLicenseFields = async (licensePayload) => {
         <Dashboard
           claims={filteredClaims}
           allClaims={Object.values(claimsDb)}
+          fraudResults={fraudResults}
           activeTab={activeTab}
           onTabChange={setActiveTab}
           onSelectClaim={openClaimDetail}
@@ -700,6 +770,10 @@ const handleSaveLicenseFields = async (licensePayload) => {
             activeOcrFieldId,
             onSelectField: handleSelectField,
             onEditOcr: openOcrModal
+          }}
+          fraud={{
+            result: activeFraud,
+            onViewEvidence: handleViewFraudEvidence
           }}
           decision={{
             onApprove: handleDirectApprove,

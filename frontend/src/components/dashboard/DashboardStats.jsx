@@ -10,8 +10,14 @@
  * would only ever count the tab that is already open.
  */
 
+import { needsIntegrityReview } from '../../services/fraudEngine';
+
 // One entry per dashboard tab. `id` must match the tab ids in ClaimTable.jsx
 // and the branches of `filteredClaims` in App.jsx.
+//
+// `matches` receives (claim, fraudResults) — the second argument exists solely
+// for the Integrity Review tile, whose predicate depends on the FR-01 engine's
+// verdict rather than on anything stored on the claim.
 const TILES = [
   {
     id: 'All Open',
@@ -41,6 +47,19 @@ const TILES = [
     activeClass: 'border-emerald-400 ring-1 ring-emerald-200'
   },
   {
+    // Violet, and nothing else on this dashboard is violet. The policy engine
+    // owns green/amber/red and they mean coverage; violet means integrity.
+    // Keeping the palettes disjoint is deliberate — see ClaimIntegrity.jsx.
+    id: 'Integrity Review',
+    label: 'Integrity Review',
+    caption: 'Requires verification or SIU referral',
+    matches: (claim, fraudResults) =>
+      claim.status === 'In Assessment' && needsIntegrityReview(fraudResults?.[claim.id]),
+    valueClass: 'text-violet-600',
+    captionClass: 'text-violet-600',
+    activeClass: 'border-violet-400 ring-1 ring-violet-200'
+  },
+  {
     id: 'Completed',
     label: 'Processed & Completed',
     caption: 'Approved or denied',
@@ -51,11 +70,11 @@ const TILES = [
   }
 ];
 
-export default function DashboardStats({ claims = [], activeTab, onTabChange }) {
+export default function DashboardStats({ claims = [], fraudResults = {}, activeTab, onTabChange }) {
   return (
-    <div className="grid grid-cols-4 gap-4">
+    <div className="grid grid-cols-5 gap-4">
       {TILES.map((tile) => {
-        const count = claims.filter(tile.matches).length;
+        const count = claims.filter(claim => tile.matches(claim, fraudResults)).length;
         const isActive = activeTab === tile.id;
 
         return (
