@@ -807,6 +807,80 @@ const handleSaveLicenseFields = async (licensePayload) => {
     setIsModalOpen(false);
   };
 
+  /**
+   * Reopens a sealed claim, returning it to In Assessment.
+   *
+   * Claims genuinely do get reopened — new evidence arrives, an appeal is filed,
+   * a decision was entered in error — so this is a real action rather than a
+   * test-only escape hatch. It was simply unreachable before: the panel replaced
+   * the decision buttons with a badge and offered no way back.
+   *
+   * IT CLEARS THE WITHDRAWN DECISION, INCLUDING THE FRAUD ACKNOWLEDGEMENT.
+   * That is a deliberate choice and it has a cost worth naming. The
+   * acknowledgement is snapshotted at approval precisely so that re-running the
+   * advisory afterwards cannot rewrite what an agent signed — and this button
+   * deletes it outright. The trade was made for demo repeatability: a claim you
+   * cannot return to a clean state is a claim you can only test once.
+   *
+   * A production version would move the withdrawn decision into a history array
+   * on the claim rather than deleting it, so the record of what was decided, by
+   * whom and over which indicators survives the reopening. Until then, the
+   * activity log below is the only trace, and it does not outlive the session.
+   */
+  const handleReopenClaim = async () => {
+    const claim = activeClaim;
+    const wasDenied = claim.status === 'Denied';
+    const acknowledgement = claim.fraudAcknowledgement;
+
+    const confirmed = window.confirm(
+      `Reopen ${claim.id}?\n\n` +
+      `The claim returns to In Assessment and the ${wasDenied ? 'denial' : 'approval'} is withdrawn. ` +
+      'The decision reason, the decision date and the approved payout are cleared' +
+      (acknowledgement?.note ? ', along with the fraud advisory acknowledgement on file' : '') +
+      '.\n\nThis cannot be undone.'
+    );
+    if (!confirmed) return;
+
+    // Log what is about to be destroyed BEFORE destroying it. Not a substitute
+    // for persisting the withdrawn decision, but better than it vanishing with
+    // no trace at all.
+    logActivity(
+      'warning',
+      `${claim.id} reopened. Withdrew the ${wasDenied ? 'denial' : 'approval'}` +
+      (claim.decisionReason ? ` ("${claim.decisionReason}")` : '') +
+      (claim.decidedAt ? `, decided ${new Date(claim.decidedAt).toLocaleString()}` : '') + '.'
+    );
+
+    if (acknowledgement?.note) {
+      logActivity(
+        'warning',
+        `Fraud advisory acknowledgement cleared from ${claim.id}: "${acknowledgement.note}" ` +
+        `(indicators ${(acknowledgement.indicatorCodes || []).join(', ') || 'none recorded'}).`
+      );
+    }
+
+    // approvedPayout is nulled rather than zeroed: openClaimDetail falls back
+    // with `approvedPayout ?? recommendedPayout ?? 0`, so null correctly means
+    // "no adjuster figure yet" and the AI's recommendation reappears. Zero would
+    // read as an adjuster having decided on nothing.
+    const saved = await persistDecision(
+      {
+        status: 'In Assessment',
+        approvedPayout: null,
+        decisionReason: '',
+        fraudAcknowledgement: null
+      },
+      `${claim.id} is back in assessment.`
+    );
+    if (!saved) return;
+
+    setApprovedPayout(claim.recommendedPayout ?? 0);
+    setIsModified(false);
+    setOverrideReason('');
+    setDenialReason('');
+    setEmailSent(false);
+  };
+
   const handleSendEmail = () => {
     setEmailSent(true);
     setIsEmailModalOpen(false);
@@ -872,6 +946,7 @@ const handleSaveLicenseFields = async (licensePayload) => {
             onApprove: handleDirectApprove,
             onEditPayout: () => setIsModalOpen(true),
             onDeny: () => setIsDenyModalOpen(true),
+            onReopen: handleReopenClaim,
             onSendEmail: () => setIsEmailModalOpen(true)
           }}
           runAiAnalysis={runAiAnalysis}

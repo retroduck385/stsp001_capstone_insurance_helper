@@ -323,6 +323,16 @@ app.patch('/api/claims/:claimId', async (req, res) => {
       updates.decidedAt = new Date();
     }
 
+    // ...and clear it when the claim is reopened. `decidedAt` is deliberately
+    // absent from PATCHABLE_CLAIM_FIELDS: the server owns this timestamp in BOTH
+    // directions, so a client can never write a decision time that disagrees
+    // with the status it is attached to. A reopened claim showing the date it
+    // was decided is exactly the kind of stale field that gets read as fact
+    // months later.
+    if (patch.status === 'In Assessment') {
+      updates.decidedAt = null;
+    }
+
     const updatedClaim = await Claim.findOneAndUpdate(
       { id: claimId },
       { $set: updates },

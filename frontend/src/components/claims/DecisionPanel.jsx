@@ -34,10 +34,33 @@ export default function DecisionPanel({
   onApprove,
   onEditPayout,
   onDeny,
+  onReopen,
   onSendEmail
 }) {
   const isDenied = activeClaim.status === 'Denied';
   const isClosed = activeClaim.status === 'Completed' || isDenied;
+
+  /**
+   * Returns a sealed claim to assessment.
+   *
+   * Slate, deliberately — reopening is neither an approval nor a denial, and
+   * giving it emerald or red would put a third coloured verdict next to the two
+   * real ones. It sits beside the badge rather than replacing it, so the claim's
+   * current state stays the most prominent thing in the row.
+   *
+   * Only reachable from a sealed claim: there is no free status control here, so
+   * a claim can never go from Completed straight to Denied without passing back
+   * through assessment.
+   */
+  const reopenButton = (
+    <button
+      onClick={onReopen}
+      className="text-xs font-bold px-3 py-2 rounded-lg border border-slate-300 bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800 transition"
+      title="Withdraw this decision and return the claim to assessment"
+    >
+      ↺ Reopen
+    </button>
+  );
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-3">
@@ -76,12 +99,14 @@ export default function DecisionPanel({
               <span className="text-xs text-red-700 font-bold bg-red-50 px-3 py-2 rounded-lg border border-red-200">
                 ✕ Claim Denied & Sealed
               </span>
+              {reopenButton}
             </div>
           ) : (
             <div className="flex items-center space-x-2">
               <span className="text-xs text-emerald-700 font-bold bg-emerald-50 px-3 py-2 rounded-lg border border-emerald-200">
                 ✓ Claim Approved & Signed
               </span>
+              {reopenButton}
             </div>
           )}
         </div>

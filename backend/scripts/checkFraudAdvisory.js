@@ -231,6 +231,66 @@ async function run() {
   }
 
   // -------------------------------------------------------------------------
+  console.log('\nREOPENING A SEALED CLAIM');
+  // -------------------------------------------------------------------------
+  // The server owns `decidedAt` in both directions — it stamps on close and
+  // clears on reopen — so a reopened claim can never carry a decision date for
+  // a decision that is no longer in force.
+  //
+  // This goes THROUGH THE ROUTE rather than writing to Mongo directly. Asserting
+  // that `$set: { decidedAt: null }` sets a field to null would only prove that
+  // MongoDB works; what needs proving is that the PATCH handler derives that
+  // clear from the status on its own, without the client asking for it —
+  // `decidedAt` is not patchable, so a client cannot ask.
+  //
+  // Skipped rather than failed when the API is not running, so the suite stays
+  // usable without a server.
+  const probeId = 'DEMO-REOPEN-PROBE';
+  const api = process.env.API_BASE || 'http://localhost:5001';
+
+  const reachable = await fetch(`${api}/api/health`).then(r => r.ok).catch(() => false);
+
+  if (!reachable) {
+    console.log(`  skip  the API is not running at ${api} — start it to exercise the reopen route`);
+  } else {
+    await Claim.collection.deleteOne({ id: probeId });
+    await Claim.collection.insertOne({
+      id: probeId, policyholder: 'Probe', status: 'In Assessment',
+      claimedAmount: 1000, createdAt: new Date(), updatedAt: new Date()
+    });
+
+    const patch = async (body) => {
+      const response = await fetch(`${api}/api/claims/${probeId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      return response.ok ? response.json() : { error: await response.text() };
+    };
+
+    const closed = await patch({
+      status: 'Completed',
+      approvedPayout: 900,
+      fraudAcknowledgement: { note: 'probe', indicatorCodes: ['FR-02a'] }
+    });
+    check('closing a claim stamps a decision date the client never sent', Boolean(closed.decidedAt));
+
+    const reopened = await patch({
+      status: 'In Assessment', approvedPayout: null, decisionReason: '', fraudAcknowledgement: null
+    });
+    check('reopening clears the decision date', reopened.decidedAt === null, String(reopened.decidedAt));
+    check('reopening clears the fraud acknowledgement', !reopened.fraudAcknowledgement?.note);
+    check('reopening leaves the claim in assessment', reopened.status === 'In Assessment');
+
+    // `decidedAt` must stay server-owned: a client that tries to set it directly
+    // is rejected, which is what stops a decision date disagreeing with a status.
+    const forged = await patch({ decidedAt: new Date().toISOString() });
+    check('a client cannot write decidedAt directly', Boolean(forged.error));
+
+    await Claim.collection.deleteOne({ id: probeId });
+  }
+
+  // -------------------------------------------------------------------------
   console.log('\nTHE MODEL LADDER');
   // -------------------------------------------------------------------------
   check('the ladder has no duplicates', new Set(MODEL_LADDER).size === MODEL_LADDER.length, MODEL_LADDER.join(' → '));

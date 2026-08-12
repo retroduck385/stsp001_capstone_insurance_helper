@@ -87,6 +87,7 @@ export default function ClaimAssessment({
         onApprove={decision.onApprove}
         onEditPayout={decision.onEditPayout}
         onDeny={decision.onDeny}
+        onReopen={decision.onReopen}
         onSendEmail={decision.onSendEmail}
       />
 
