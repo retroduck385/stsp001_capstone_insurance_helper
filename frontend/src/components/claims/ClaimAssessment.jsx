@@ -8,6 +8,7 @@ import DecisionPanel from './DecisionPanel';
  */
 export default function ClaimAssessment({
   activeClaim,
+  assessment,
   approvedPayout,
   isModified,
   overrideReason,
@@ -33,7 +34,7 @@ export default function ClaimAssessment({
         <div className="grid grid-cols-3 gap-3 text-center">
           <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
             <span className="text-xs text-slate-500 block">Claimed Amount</span>
-            <span className="text-lg font-bold text-slate-900">₱{(activeClaim.claimedAmount || 0).toLocaleString()}</span>
+            <span className="text-lg font-bold text-slate-900">₱{assessment["Claimed Amount"]}</span>
           </div>
           <div className={`p-3 rounded-lg border ${isDenied ? 'bg-red-50 border-red-100' : 'bg-blue-50 border-blue-100'}`}>
             <span className={`text-xs block ${isDenied ? 'text-red-600' : 'text-blue-600'}`}>
@@ -45,7 +46,7 @@ export default function ClaimAssessment({
           </div>
           <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-100">
             <span className="text-xs text-emerald-600 block">Policy Status</span>
-            <span className="text-sm font-bold text-emerald-700">Active Coverage</span>
+            <span className="text-sm font-bold text-emerald-700">{assessment["Policy Status"]}</span>
           </div>
         </div>
 
@@ -62,7 +63,7 @@ export default function ClaimAssessment({
         )}
       </div>
 
-      <PolicyRules rules={activeClaim.rules} citation={activeClaim.citation} />
+      <PolicyRules rules={assessment["relevant_provisions"]} limitations={assessment["exclusions_or_limitations"]} />
 
       <DecisionPanel
         activeClaim={activeClaim}

@@ -6,12 +6,22 @@ import mongoose from 'mongoose';
 import documentsRouter, { uploadsDir } from './routes/documents.js';
 import ocrRouter from './routes/ocr.js';
 
+import dotenv from 'dotenv';
 import { spawn } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { MongoClient } from 'mongodb';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+dotenv.config({
+    path: path.join(__dirname, '../.env')
+});
+
+const mongoUri = process.env.MONGO_URI;
+const client = new MongoClient(mongoUri);
+await client.connect();
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -369,22 +379,51 @@ function runPythonAssessment(claimId) {
 
 
 app.post('/api/claims/:claimId/assessment', async (req, res) => {
-    try {
-        const claimId = req.params.claimId;
 
-        console.log(`Running assessment for ${claimId}...`);
+  const db = client.db('stsp_db');
+  const recommendationCollection =
+    db.collection('recommendation_db');
+   const { claimId } = req.params;
+
+    try {
+        console.log(`Checking existing assessment for ${claimId}...`);
+
+        console.log("claimId:", claimId);
+        console.log("claimId type:", typeof claimId);
+
+        
+        // 1. Check recommendation_db first
+        const existingAssessment = await recommendationCollection.findOne(
+            { "Claim ID": claimId },
+            { projection: { _id: 0 } }
+        );
+
+        // 2. If it already exists, return it
+        if (existingAssessment) {
+            console.log(`Found existing assessment for ${claimId}`);
+
+            return res.json(existingAssessment);
+        }
+
+        // 3. Otherwise run Python
+        console.log(`No assessment found for ${claimId}. Running Python...`);
 
         const result = await runPythonAssessment(claimId);
 
-        console.log(`Assessment completed for ${claimId}`);
+        // 4. Save Python's result to recommendation_db
+        await recommendationCollection.insertOne(result);
 
-        res.json(result);
+        console.log(`Assessment saved for ${claimId}`);
+
+        // 5. Return the result to React
+        return res.json(result);
 
     } catch (error) {
         console.error('Assessment failed:', error);
 
-        res.status(500).json({
-            error: error.message
+        return res.status(500).json({
+            error: 'Assessment failed',
+            message: error.message
         });
     }
 });

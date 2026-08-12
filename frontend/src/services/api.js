@@ -196,12 +196,9 @@ export async function saveOcrCorrections(claimId, patch) {
 
 export async function assessClaim(claimId) {
     const response = await fetch(
-        `${API_BASE}/api/claims/${claimId}/assessment`,
+        `http://localhost:5001/api/claims/${claimId}/assessment`,
         {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
+            method: 'POST'
         }
     );
 
@@ -209,5 +206,5 @@ export async function assessClaim(claimId) {
         throw new Error(`Assessment failed: ${response.status}`);
     }
 
-    return response.json();
+    return await response.json();
 }

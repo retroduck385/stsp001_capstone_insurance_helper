@@ -10,6 +10,7 @@ import DriverLicenseEditor from './DriverLicenseEditor';
 export default function ClaimWorkspace({
   activeClaim,
   approvedPayout,
+  assessment,
   isModified,
   overrideReason,
   denialReason,
@@ -93,8 +94,9 @@ export default function ClaimWorkspace({
       ) : (
         // Default: assessment + rules + decision bar
         <ClaimAssessment
+          assessment={assessment}
           activeClaim={activeClaim}
-          approvedPayout={approvedPayout}
+          approvedPayout={assessment?.["Reccomended Payout"]}
           isModified={isModified}
           overrideReason={overrideReason}
           denialReason={denialReason}
@@ -107,3 +109,4 @@ export default function ClaimWorkspace({
     </main>
   );
 }
+

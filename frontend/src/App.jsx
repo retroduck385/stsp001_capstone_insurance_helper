@@ -62,6 +62,7 @@ export default function App() {
 
   const [approvedPayout, setApprovedPayout] = useState(0);
   const [assessment, setAssessment] = useState(null);
+  const [assessmentResult, setAssessmentResult] = useState(null);
   const [assessmentLoading, setAssessmentLoading] = useState(false);
   const [activeOcrFieldId, setActiveOcrFieldId] = useState(null);
   const [activeDocId, setActiveDocId] = useState(null);
@@ -192,18 +193,18 @@ export default function App() {
   };
 
   const handleAssessment = async (claimId) => {
-  setAssessmentLoading(true);
     try {
-      const result = await assessClaim(claimId);
+        const result = await assessClaim(claimId);
 
-      console.log("Assessment result:", result);
+        console.log("Assessment result:", result);
 
-      setAssessment(result);
+        setAssessmentResult(result);
+
+        return result;
+
     } catch (error) {
-      console.error("Assessment failed:", error);
-      setAssessment(null);
-    } finally {
-      setAssessmentLoading(false);
+        console.error("Assessment failed:", error);
+        return null;
     }
   };
 
@@ -702,6 +703,7 @@ const handleSaveLicenseFields = async (licensePayload) => {
         <ClaimWorkspace
           activeClaim={activeClaim}
           approvedPayout={approvedPayout}
+          assessment={assessmentResult}
           isModified={isModified}
           overrideReason={overrideReason}
           denialReason={denialReason}

@@ -337,9 +337,9 @@ class PolicyCrossChecker:
         Return the following format
         {{
         "Claim ID": "{claimID}",
-        "Policy Status": "Covered / Not Covered / Requires Further Review",
-        "Claimed Amount": {claim_amount} PHP,
-        "Reccomended Payout": amount in PHP or 0 if not applicable,
+        "Policy Status": "ONE OF THE FOLLOWING VALUES ONLY: Covered, Not Covered, Requires Further Review",
+        "Claimed Amount": {claim_amount},
+        "Reccomended Payout": amount in PHP or 0 if not applicable (use no commas in the numbers),
         "relevant_provisions": [
             {{
                 "section": "Policy section",
