@@ -96,6 +96,22 @@ Use this exact JSON structure:
   "authorization_text": "string or null"
 }
 """
+
+vehicle_damage_prompt = """
+You are an expert claims adjuster AI for the "STSP001 Capstone " project. Your task is to analyze the attached vehicle damage image(s), assess the visible damage, and output the result STRICTLY as a valid JSON object.
+
+GUARDRAILS:
+1. Return ONLY the JSON object. Do not include conversational text or markdown code blocks.
+2. Use the exact keys provided below.
+3. For 'severity', classify the damage as one of the following: "Minor", "Moderate", "Heavy", or "Total Loss".
+4. For 'damageDescription', provide a concise, factual summary of the visible damage (e.g., "Crushed front bumper and broken left headlight.").
+
+Use this exact JSON structure:
+{
+  "damageDescription": "string or null",
+  "severity": "string or null"
+}
+"""
 #   "driver_license_type": "string or null",
 #   "driver_license_issue_date": "string or null",
 
@@ -107,14 +123,14 @@ load_dotenv()
 client = genai.Client()
 
 # Upload the image (Make sure "image_15bd30.jpg" matches your actual image name)
-sample_file = client.files.upload(file="sample_application_form.pdf")
+sample_file = client.files.upload(file="car-damage-road-accident-car-insurance.jpg")
 
 # Prompt the model using the new syntax
 response = client.models.generate_content(
     model='gemini-3.6-flash',
     contents= [
         sample_file, 
-        application_form_ocr_prompt
+        vehicle_damage_prompt
     ]
 )
 
