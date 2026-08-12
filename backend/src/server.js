@@ -6,6 +6,13 @@ import mongoose from 'mongoose';
 import documentsRouter, { uploadsDir } from './routes/documents.js';
 import ocrRouter from './routes/ocr.js';
 
+import { spawn } from 'child_process';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
 const PORT = process.env.PORT || 5001;
 app.use(cors());
@@ -318,6 +325,70 @@ app.use('/api/claims', documentsRouter);
 
 // Adjuster corrections to OCR fields    → /api/claims/:claimId/ocr
 app.use('/api/claims', ocrRouter);
+
+function runPythonAssessment(claimId) {
+    return new Promise((resolve, reject) => {
+        const pythonScript = path.join(
+            __dirname,
+            '../scripts/policy_crosschecker.py'
+        );
+
+        const python = spawn('python', [
+            pythonScript,
+            claimId
+        ]);
+
+        let output = '';
+        let errorOutput = '';
+
+        python.stdout.on('data', (data) => {
+            output += data.toString();
+        });
+
+        python.stderr.on('data', (data) => {
+            errorOutput += data.toString();
+        });
+
+        python.on('close', (code) => {
+            if (code !== 0) {
+                reject(new Error(errorOutput || `Python exited with code ${code}`));
+                return;
+            }
+
+            try {
+                const result = JSON.parse(output);
+                resolve(result);
+            } catch (error) {
+                reject(new Error(
+                    `Python returned invalid JSON: ${output}`
+                ));
+            }
+        });
+    });
+}
+
+
+app.post('/api/claims/:claimId/assessment', async (req, res) => {
+    try {
+        const claimId = req.params.claimId;
+
+        console.log(`Running assessment for ${claimId}...`);
+
+        const result = await runPythonAssessment(claimId);
+
+        console.log(`Assessment completed for ${claimId}`);
+
+        res.json(result);
+
+    } catch (error) {
+        console.error('Assessment failed:', error);
+
+        res.status(500).json({
+            error: error.message
+        });
+    }
+});
+
 
 async function start(){
   if(process.env.MONGO_URI){await mongoose.connect(process.env.MONGO_URI);console.log('Connected to MongoDB');}

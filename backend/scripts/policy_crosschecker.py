@@ -210,6 +210,9 @@ class PolicyCrossChecker:
         # 1. Get the claim
         claim_summary = self.documentToString(claimID)
 
+        claim_document = self.claim_collection.find_one({"id": claimID}, {"_id": 0})
+        claim_amount = claim_document.get("claimedAmount")
+
         # 2. Retrieve relevant policy provisions
         results = self.search_multiple_collections(
             question=claim_summary,
@@ -335,7 +338,7 @@ class PolicyCrossChecker:
         {{
         "Claim ID": "{claimID}",
         "Policy Status": "Covered / Not Covered / Requires Further Review",
-        "Claimed Amount": amount in PHP,
+        "Claimed Amount": {claim_amount} PHP,
         "Reccomended Payout": amount in PHP or 0 if not applicable,
         "relevant_provisions": [
             {{
@@ -355,7 +358,7 @@ class PolicyCrossChecker:
 
             # 5. Ask Gemini
         response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3.5-flash-lite",
                 contents=prompt,
                 config={
                     "temperature": 0,
@@ -371,9 +374,36 @@ class PolicyCrossChecker:
 
 
 #sample initializer of class, and function call of storeResult and cross_check_claim (the only two functions that should be relevant to the frontend)
-crosschecker = PolicyCrossChecker(connection_string=None,db_name="stsp_db" , resultdb = "reccomendation_db", )
-crosschecker.storeResult(crosschecker.cross_check_claim("CLM-2026-9001", ["injury_policies","global_conditions_and_exceptions", "loss_or_damage_policies"],top_k=5))
+# crosschecker = PolicyCrossChecker(connection_string=None,db_name="stsp_db" , resultdb = "reccomendation_db", )
+# crosschecker.storeResult(crosschecker.cross_check_claim("CLM-2026-9001", ["injury_policies","global_conditions_and_exceptions", "loss_or_damage_policies"],top_k=5))
 
-       
+# for node backend to use
+def run_assessment(claim_id):
+    crosschecker = PolicyCrossChecker(
+        connection_string=None,
+        db_name="stsp_db",
+        resultdb="reccomendation_db"
+    )
+
+    result = crosschecker.cross_check_claim(
+        claim_id,
+        [
+            "injury_policies",
+            "global_conditions_and_exceptions",
+            "loss_or_damage_policies"
+        ],
+        top_k=5
+    )
+
+    return parse_json_response(result)
 
 
+if __name__ == "__main__":
+    import sys
+    import json
+
+    claim_id = sys.argv[1]
+
+    result = run_assessment(claim_id)
+
+    print(json.dumps(result))

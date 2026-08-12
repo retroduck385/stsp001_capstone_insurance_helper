@@ -192,3 +192,22 @@ export async function saveOcrCorrections(claimId, patch) {
   if (!response.ok) await throwApiError(response, 'Could not save the correction');
   return normaliseClaim(await response.json());
 }
+
+
+export async function assessClaim(claimId) {
+    const response = await fetch(
+        `${API_BASE}/api/claims/${claimId}/assessment`,
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+        }
+    );
+
+    if (!response.ok) {
+        throw new Error(`Assessment failed: ${response.status}`);
+    }
+
+    return response.json();
+}

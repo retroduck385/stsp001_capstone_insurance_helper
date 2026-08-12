@@ -15,7 +15,8 @@ import {
   replaceDocument,
   deleteDocument,
   saveOcrCorrections,
-  updateClaim
+  updateClaim,
+  assessClaim
 } from './services/api';
 import { buildOcrPatch } from './services/ocrAdapter';
 
@@ -60,6 +61,8 @@ export default function App() {
 
 
   const [approvedPayout, setApprovedPayout] = useState(0);
+  const [assessment, setAssessment] = useState(null);
+  const [assessmentLoading, setAssessmentLoading] = useState(false);
   const [activeOcrFieldId, setActiveOcrFieldId] = useState(null);
   const [activeDocId, setActiveDocId] = useState(null);
   
@@ -188,11 +191,30 @@ export default function App() {
     }, 650);
   };
 
+  const handleAssessment = async (claimId) => {
+  setAssessmentLoading(true);
+    try {
+      const result = await assessClaim(claimId);
+
+      console.log("Assessment result:", result);
+
+      setAssessment(result);
+    } catch (error) {
+      console.error("Assessment failed:", error);
+      setAssessment(null);
+    } finally {
+      setAssessmentLoading(false);
+    }
+  };
+
   // ---------------------------------------------------------------------
   // 7. NAVIGATION HANDLERS
   // ---------------------------------------------------------------------
-  const openClaimDetail = (id) => {
+  const openClaimDetail =  async(id) => {
     setSelectedClaimId(id);
+    
+    await handleAssessment(id);
+
     const target = claimsDb[id];
     if (target) {
       // A saved adjuster payout beats the AI's recommendation; the saved reason
@@ -210,6 +232,7 @@ export default function App() {
     setCurrentScreen('detail');
   };
 
+  
   // ---------------------------------------------------------------------
   // 8. CHECKLIST HANDLERS
   // ---------------------------------------------------------------------
