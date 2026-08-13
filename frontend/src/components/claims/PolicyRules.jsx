@@ -16,6 +16,8 @@ export default function PolicyRules(props) {
     data,
     record,
     citation: citationProp,
+    isRunning,
+    onRun,
   } = props;
 
   const source = data || record || {};
@@ -46,7 +48,18 @@ export default function PolicyRules(props) {
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-3">
         <div className="flex justify-between items-center">
           <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Automated Policy Rules & Flags</h2>
-          <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-mono">Dynamic Evaluation Active</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-mono">Dynamic Evaluation Active</span>
+            <button
+              type="button"
+              onClick={onRun}
+              disabled={isRunning}
+              className="text-[10px] font-bold text-blue-600 hover:text-blue-800 disabled:text-slate-400 px-1.5 py-1"
+              title="Re-run the policy rules assessment against the current data"
+            >
+              {isRunning ? '…' : '↻'}
+            </button>
+          </div>
         </div>
 
         {rules.map((rule, idx) => (

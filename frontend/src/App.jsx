@@ -260,9 +260,10 @@ export default function App() {
     }, 650);
   };
 
-  const handleAssessment = async (claimId) => {
+  const handleAssessment = async (claimId, { force = false } = {}) => {
+    setAssessmentLoading(true);
     try {
-        const result = await assessClaim(claimId);
+        const result = await assessClaim(claimId, { force });
 
         console.log("Assessment result:", result);
 
@@ -273,6 +274,8 @@ export default function App() {
     } catch (error) {
         console.error("Assessment failed:", error);
         return null;
+    } finally {
+        setAssessmentLoading(false);
     }
   };
 
@@ -966,6 +969,10 @@ const handleSaveLicenseFields = async (licensePayload) => {
             onRun: () => handleRunFraudReview(selectedClaimId),
             onViewEvidence: handleViewFraudEvidence,
             onOpenClaim: openClaimDetail
+          }}
+          policyRules={{
+            isRunning: assessmentLoading,
+            onRun: () => handleAssessment(selectedClaimId, { force: true })
           }}
           decision={{
             onApprove: handleDirectApprove,

@@ -463,6 +463,7 @@ app.post('/api/claims/:claimId/assessment', async (req, res) => {
   const recommendationCollection =
     db.collection('recommendation_db');
    const { claimId } = req.params;
+   const force = req.query.force === 'true';
 
     try {
         console.log(`Checking existing assessment for ${claimId}...`);
@@ -470,27 +471,38 @@ app.post('/api/claims/:claimId/assessment', async (req, res) => {
         console.log("claimId:", claimId);
         console.log("claimId type:", typeof claimId);
 
-        
-        // 1. Check recommendation_db first
-        const existingAssessment = await recommendationCollection.findOne(
-            { "Claim ID": claimId },
-            { projection: { _id: 0 } }
-        );
+        // 1. Check recommendation_db first — skipped entirely when force=true,
+        // which is how the Policy Rules card's retrigger button gets a fresh
+        // AI run instead of just re-fetching the cached one.
+        if (!force) {
+            const existingAssessment = await recommendationCollection.findOne(
+                { "Claim ID": claimId },
+                { projection: { _id: 0 } }
+            );
 
-        // 2. If it already exists, return it
-        if (existingAssessment) {
-            console.log(`Found existing assessment for ${claimId}`);
+            // 2. If it already exists, return it
+            if (existingAssessment) {
+                console.log(`Found existing assessment for ${claimId}`);
 
-            return res.json(existingAssessment);
+                return res.json(existingAssessment);
+            }
         }
 
         // 3. Otherwise run Python
-        console.log(`No assessment found for ${claimId}. Running Python...`);
+        console.log(force
+            ? `Forced re-assessment for ${claimId}. Running Python...`
+            : `No assessment found for ${claimId}. Running Python...`);
 
         const result = await runPythonAssessment(claimId);
 
-        // 4. Save Python's result to recommendation_db
-        await recommendationCollection.insertOne(result);
+        // 4. Save Python's result to recommendation_db. upsert so a forced
+        // re-run overwrites the prior result instead of throwing a
+        // duplicate-key error on the second click.
+        await recommendationCollection.replaceOne(
+            { "Claim ID": claimId },
+            result,
+            { upsert: true }
+        );
 
         console.log(`Assessment saved for ${claimId}`);
 

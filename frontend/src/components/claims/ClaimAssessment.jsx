@@ -16,7 +16,8 @@ export default function ClaimAssessment({
   denialReason,
   emailSent,
   decision,
-  fraud
+  fraud,
+  policyRules
 }) {
   const isDenied = activeClaim.status === 'Denied';
 
@@ -65,7 +66,12 @@ export default function ClaimAssessment({
         )}
       </div>
 
-      <PolicyRules rules={assessment["relevant_provisions"]} limitations={assessment["exclusions_or_limitations"]} />
+      <PolicyRules
+        rules={assessment["relevant_provisions"]}
+        limitations={assessment["exclusions_or_limitations"]}
+        isRunning={policyRules?.isRunning}
+        onRun={policyRules?.onRun}
+      />
 
       {/* The advisory sits between the policy verdict and the decision bar, so
           the agent cannot reach Approve without having scrolled past it. The

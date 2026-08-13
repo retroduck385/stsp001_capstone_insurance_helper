@@ -216,13 +216,11 @@ export async function saveOcrCorrections(claimId, patch) {
 }
 
 
-export async function assessClaim(claimId) {
-    const response = await fetch(
-        `http://localhost:5001/api/claims/${claimId}/assessment`,
-        {
-            method: 'POST'
-        }
-    );
+export async function assessClaim(claimId, { force = false } = {}) {
+    const url = `http://localhost:5001/api/claims/${claimId}/assessment${force ? '?force=true' : ''}`;
+    const response = await fetch(url, {
+        method: 'POST'
+    });
 
     if (!response.ok) {
         throw new Error(`Assessment failed: ${response.status}`);
