@@ -58,6 +58,16 @@ export default function ClaimRequirements({
           <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-bold border border-blue-100">Source-Based Workflow</span>
         </div>
 
+        {/* NEW: Claim Type / Policy Coverage cards, pulled straight from the claim doc */}
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
+              <span className="text-[10px] font-bold text-blue-700 uppercase tracking-wider block">Claim Type</span>
+              <span className="text-sm font-bold text-blue-900 block mt-0.5">
+                {activeClaim.claimType || '—'}
+              </span>
+            </div>
+          </div>
+
         <div>
           <div className="flex justify-between items-center mb-2">
             <div>
