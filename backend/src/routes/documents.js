@@ -212,9 +212,24 @@ function runGeminiOCR(filePath, section) {
         ));
       }
       try {
-        resolve(JSON.parse(extractedData));
-      } catch {
-        reject(new Error(`gemini_ocr.py did not return valid JSON. Output was: ${extractedData.slice(0, 300)}`));
+        // Isolate just the JSON object from the raw output
+        const startIndex = extractedData.indexOf('{');
+        const endIndex = extractedData.lastIndexOf('}');
+        
+        if (startIndex === -1 || endIndex === -1) {
+            throw new Error("No JSON object found in output.");
+        }
+
+        const cleanJsonString = extractedData.substring(startIndex, endIndex + 1);
+        
+        resolve(JSON.parse(cleanJsonString));
+      } catch (err) {
+        // Log the FULL text so you can see exactly what broke it
+        console.error("------- FULL OCR OUTPUT -------");
+        console.error(extractedData);
+        console.error("-------------------------------");
+        
+        reject(new Error(`gemini_ocr.py did not return valid JSON. Error: ${err.message}`));
       }
     });
   });

@@ -148,7 +148,7 @@ try:
 
     # 2. Extract Data
     response = client.models.generate_content(
-        model='gemini-3.6-flash',
+        model='gemini-3.5-flash',
         contents=[uploaded_file, selected_prompt],
         config={"response_mime_type": "application/json"}
     )
