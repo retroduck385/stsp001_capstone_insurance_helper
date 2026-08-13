@@ -97,7 +97,20 @@ export default function ClaimWorkspace({
         <ClaimAssessment
           assessment={assessment}
           activeClaim={activeClaim}
-          approvedPayout={assessment?.["Reccomended Payout"]}
+          // The ADJUSTER's payout, not the cross-checker's recommendation.
+          //
+          // This used to pass assessment?.["Reccomended Payout"], which threw
+          // away the prop App.jsx supplies. The effect was that Edit Payout,
+          // Approve and Reopen all updated state that nothing on screen read,
+          // so the workspace showed a frozen AI figure while the database held
+          // the real one — and the tile is labelled "Approved Payout", which
+          // the recommendation is not.
+          //
+          // The recommendation is still the starting value: openClaimDetail
+          // seeds this state with `approvedPayout ?? recommendedPayout ?? 0`,
+          // so an unassessed claim opens on the AI's number and then follows
+          // the adjuster from there.
+          approvedPayout={approvedPayout}
           isModified={isModified}
           overrideReason={overrideReason}
           denialReason={denialReason}
