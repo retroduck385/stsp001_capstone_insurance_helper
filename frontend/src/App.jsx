@@ -17,11 +17,8 @@ import {
   deleteDocument,
   saveOcrCorrections,
   updateClaim,
-<<<<<<< HEAD
-  assessClaim
-=======
+  assessClaim,
   runFraudReview
->>>>>>> fraud-test
 } from './services/api';
 import { buildOcrPatch } from './services/ocrAdapter';
 
