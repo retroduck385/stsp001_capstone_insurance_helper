@@ -3,6 +3,7 @@ import os
 from google import genai
 from dotenv import load_dotenv
 from pymongo import MongoClient
+import certifi
 import re
 
 #initialize genAI client
@@ -31,7 +32,7 @@ class PolicyCrossChecker:
         connection_string = connection_string or os.getenv("MONGODB_URI")
         if not connection_string:
             raise ValueError("Set MONGODB_URI to a MongoDB connection string")
-        self.client = MongoClient(connection_string)
+        self.client = MongoClient(connection_string, tlsCAFile=certifi.where())
         self.db = self.client[db_name]
         self.claim_collection = self.db["claims"]
         self.resultdb = resultdb
