@@ -5,6 +5,7 @@ import cors from 'cors';
 import mongoose from 'mongoose';
 import documentsRouter, { uploadsDir } from './routes/documents.js';
 import ocrRouter from './routes/ocr.js';
+import { buildFraudAdvisory } from './services/fraudAdvisor.js';
 
 import dotenv from 'dotenv';
 import { spawn } from 'child_process';
@@ -66,6 +67,32 @@ const claimSchema = new mongoose.Schema({
   // than indexes so reordering claimRequirements.js can't shift the ticks onto
   // the wrong rows.
   confirmedRequirements: [String],
+
+  // --- FRAUD ADVISORY ----------------------------------------------------
+  // The output of services/fraudAdvisor.js, written ONLY by
+  // POST /api/claims/:claimId/fraud-review below. Mixed because the shape is
+  // owned by the advisor and evolves with the rule catalogue; pinning it here
+  // would mean two definitions that drift.
+  //
+  // Deliberately NOT in PATCHABLE_CLAIM_FIELDS. It is a machine-produced
+  // assessment, not an adjuster-editable field — the same treatment `documents`
+  // and `ocrData` already get, each with its own route.
+  fraudAdvisory: mongoose.Schema.Types.Mixed,
+
+  // The agent's acknowledgement when they approve a claim that has an
+  // outstanding advisory. `indicatorCodes` is a SNAPSHOT taken at the moment of
+  // approval: re-running the advisory afterwards must not be able to rewrite
+  // what the agent was actually looking at when they signed.
+  //
+  // Guardrail 3: this records that the warning was seen. It never blocks it.
+  fraudAcknowledgement: {
+    acknowledgedBy: String,
+    note: String,
+    acknowledgedAt: Date,
+    advisoryState: String,
+    indicatorCodes: [String],
+    engineVersion: String
+  },
 
   // All fields initialize as null. The OCR will inject data here.
   ocrData: {
@@ -266,7 +293,10 @@ app.get('/api/claims',async(req,res)=>{
 // and is deliberately NOT writable here.
 const PATCHABLE_CLAIM_FIELDS = [
   'status', 'approvedPayout', 'decisionReason',
-  'isFlagged', 'flagSummary', 'confirmedRequirements'
+  'isFlagged', 'flagSummary', 'confirmedRequirements',
+  // The agent's note when approving over an outstanding fraud advisory. This
+  // one IS patchable — unlike `fraudAdvisory`, it is something a human wrote.
+  'fraudAcknowledgement'
 ];
 
 const CLAIM_STATUSES = ['In Assessment', 'Completed', 'Denied'];
@@ -310,6 +340,16 @@ app.patch('/api/claims/:claimId', async (req, res) => {
       updates.decidedAt = new Date();
     }
 
+    // ...and clear it when the claim is reopened. `decidedAt` is deliberately
+    // absent from PATCHABLE_CLAIM_FIELDS: the server owns this timestamp in BOTH
+    // directions, so a client can never write a decision time that disagrees
+    // with the status it is attached to. A reopened claim showing the date it
+    // was decided is exactly the kind of stale field that gets read as fact
+    // months later.
+    if (patch.status === 'In Assessment') {
+      updates.decidedAt = null;
+    }
+
     const updatedClaim = await Claim.findOneAndUpdate(
       { id: claimId },
       { $set: updates },
@@ -327,6 +367,45 @@ app.patch('/api/claims/:claimId', async (req, res) => {
       return res.status(400).json({ message: `Could not save: ${err.message}` });
     }
     return res.status(500).json({ message: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/claims/:claimId/fraud-review  — run the fraud advisory
+// ---------------------------------------------------------------------------
+// Runs FR-01 / FR-02 / FR-03 against the claim, persists the result under
+// `fraudAdvisory`, and returns the full updated claim so the client can splice
+// it in the same way every other mutation here works.
+//
+// POST rather than GET because it writes and it costs an AI call. Re-running is
+// allowed and OVERWRITES: correcting an OCR value and re-checking is the whole
+// point of the module, so the advisory has to be replaceable, and a claim must
+// never accumulate a pile of stale advisories with no way to tell which is
+// current.
+//
+// It is a route of its own, not a PATCH field, because nothing outside this
+// module is allowed to write an advisory. See PATCHABLE_CLAIM_FIELDS.
+app.post('/api/claims/:claimId/fraud-review', async (req, res) => {
+  const { claimId } = req.params;
+
+  try {
+    const claim = await Claim.findOne({ id: claimId }).lean();
+    if (!claim) {
+      return res.status(404).json({ message: `No claim found with id "${claimId}".` });
+    }
+
+    const fraudAdvisory = await buildFraudAdvisory(Claim, claim);
+
+    const updatedClaim = await Claim.findOneAndUpdate(
+      { id: claimId },
+      { $set: { fraudAdvisory } },
+      { new: true, runValidators: true }
+    );
+
+    return res.json(updatedClaim);
+  } catch (err) {
+    console.error('Fraud review failed:', err);
+    return res.status(500).json({ message: `Could not run the fraud advisory: ${err.message}` });
   }
 });
 

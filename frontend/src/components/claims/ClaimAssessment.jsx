@@ -1,4 +1,5 @@
 import PolicyRules from './PolicyRules';
+import FraudAdvisory from './FraudAdvisory';
 import DecisionPanel from './DecisionPanel';
 
 /**
@@ -14,7 +15,8 @@ export default function ClaimAssessment({
   overrideReason,
   denialReason,
   emailSent,
-  decision
+  decision,
+  fraud
 }) {
   const isDenied = activeClaim.status === 'Denied';
 
@@ -65,6 +67,20 @@ export default function ClaimAssessment({
 
       <PolicyRules rules={assessment["relevant_provisions"]} limitations={assessment["exclusions_or_limitations"]} />
 
+      {/* The advisory sits between the policy verdict and the decision bar, so
+          the agent cannot reach Approve without having scrolled past it. The
+          plan called for it above the policy citation; the citation is rendered
+          inside PolicyRules, so it goes directly below that pair instead — same
+          position in the reading order that matters, without splitting that
+          component. */}
+      <FraudAdvisory
+        advisory={fraud?.advisory}
+        isRunning={fraud?.isRunning}
+        onRun={fraud?.onRun}
+        onViewEvidence={fraud?.onViewEvidence}
+        onOpenClaim={fraud?.onOpenClaim}
+      />
+
       <DecisionPanel
         activeClaim={activeClaim}
         approvedPayout={approvedPayout}
@@ -72,6 +88,7 @@ export default function ClaimAssessment({
         onApprove={decision.onApprove}
         onEditPayout={decision.onEditPayout}
         onDeny={decision.onDeny}
+        onReopen={decision.onReopen}
         onSendEmail={decision.onSendEmail}
       />
 

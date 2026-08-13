@@ -5,8 +5,44 @@ const TABS = [
   { id: 'All Open', label: 'All Open' },
   { id: 'Flagged / Exceptions', label: '⚠️ Flagged / Exceptions' },
   { id: 'Clean / Straight-Through', label: '⚡ Clean / Straight-Through' },
+  { id: 'Fraud Advisory', label: '🔍 Fraud Advisory' },
   { id: 'Completed', label: '✓ Processed & Completed' }
 ];
+
+// Advisory state → chip style. Violet is reserved for the fraud advisory across
+// the whole app and is never used by the policy rules engine, so "not covered"
+// and "worth checking" can't be confused at a glance. See FraudAdvisory.jsx for
+// why that matters.
+const ADVISORY_STYLES = {
+  CLEARED: 'bg-slate-100 text-slate-500 border-slate-200',
+  NOT_CLEARED: 'bg-amber-100 text-amber-900 border-amber-300'
+};
+
+/**
+ * Compact advisory state for the table. Renders a dash when the advisory has
+ * not been run — deliberately NOT "CLEARED", which would claim a result that
+ * does not exist.
+ */
+function AdvisoryChip({ advisory }) {
+  if (!advisory) return <span className="text-xs text-slate-300" title="Advisory not yet run">—</span>;
+
+  const isNotCleared = advisory.state === 'NOT_CLEARED';
+
+  return (
+    <span
+      className={`inline-block text-[10px] font-bold px-2 py-1 rounded border whitespace-nowrap ${
+        ADVISORY_STYLES[advisory.state] || ADVISORY_STYLES.CLEARED
+      }`}
+      title={
+        (advisory.indicators || []).length
+          ? advisory.indicators.map(item => `${item.code} ${item.label}`).join('\n')
+          : 'No fraud indicators found'
+      }
+    >
+      {isNotCleared ? `NOT CLEARED · ${advisory.concern}` : 'CLEARED'}
+    </span>
+  );
+}
 
 // Colour per claim status. Anything unrecognised falls back to the neutral
 // style rather than rendering an unstyled pill.
@@ -54,6 +90,7 @@ export default function ClaimTable({ claims, activeTab, onTabChange, onSelectCla
               <th className="py-3 px-4">Status</th>
               <th className="py-3 px-4">Claimed Amount</th>
               <th className="py-3 px-4">Flags & Summary</th>
+              <th className="py-3 px-4">Fraud Advisory</th>
               <th className="py-3 px-4 text-center">Docs</th>
               <th className="py-3 px-4 text-right">Action</th>
             </tr>
@@ -69,6 +106,7 @@ export default function ClaimTable({ claims, activeTab, onTabChange, onSelectCla
                 <td className="py-3.5 px-4"><StatusPill status={claim.status} /></td>
                 <td className="py-3.5 px-4 font-semibold text-xs">₱{(claim.claimedAmount || 0).toLocaleString()}</td>
                 <td className="py-3.5 px-4 text-xs font-bold">{claim.flagSummary}</td>
+                <td className="py-3.5 px-4"><AdvisoryChip advisory={claim.fraudAdvisory} /></td>
                 <td className="py-3.5 px-4 text-center">
                   <span className="inline-flex items-center space-x-1 text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200">
                     📄 {claim.docsCount}

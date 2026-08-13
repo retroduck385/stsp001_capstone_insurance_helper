@@ -12,6 +12,11 @@
 
 // One entry per dashboard tab. `id` must match the tab ids in ClaimTable.jsx
 // and the branches of `filteredClaims` in App.jsx.
+//
+// Every predicate now reads the claim alone. The Fraud Advisory tile used to
+// take the FR-01 engine's live verdict as a second argument; the advisory is
+// computed by the backend and stored on the claim, so there is nothing extra to
+// thread through.
 const TILES = [
   {
     id: 'All Open',
@@ -41,6 +46,23 @@ const TILES = [
     activeClass: 'border-emerald-400 ring-1 ring-emerald-200'
   },
   {
+    // Violet, and nothing else on this dashboard is violet. The policy engine
+    // owns green/amber/red and they mean coverage; violet means "worth
+    // checking". Keeping the palettes disjoint is deliberate — see
+    // FraudAdvisory.jsx.
+    //
+    // The caption says "recommended for review", not "referral". The module
+    // does not refer anything anywhere; it puts a claim in front of a human.
+    id: 'Fraud Advisory',
+    label: 'Fraud Advisory',
+    caption: 'Recommended for agent review',
+    matches: (claim) =>
+      claim.status === 'In Assessment' && claim.fraudAdvisory?.state === 'NOT_CLEARED',
+    valueClass: 'text-violet-600',
+    captionClass: 'text-violet-600',
+    activeClass: 'border-violet-400 ring-1 ring-violet-200'
+  },
+  {
     id: 'Completed',
     label: 'Processed & Completed',
     caption: 'Approved or denied',
@@ -53,9 +75,9 @@ const TILES = [
 
 export default function DashboardStats({ claims = [], activeTab, onTabChange }) {
   return (
-    <div className="grid grid-cols-4 gap-4">
+    <div className="grid grid-cols-5 gap-4">
       {TILES.map((tile) => {
-        const count = claims.filter(tile.matches).length;
+        const count = claims.filter(claim => tile.matches(claim)).length;
         const isActive = activeTab === tile.id;
 
         return (

@@ -9,6 +9,7 @@ import OcrCorrectionModal from './components/modals/OcrCorrectionModal';
 import DenyClaimModal from './components/modals/DenyClaimModal';
 import EditPayoutModal from './components/modals/EditPayoutModal';
 import EmailModal from './components/modals/EmailModal';
+import FraudAcknowledgementModal from './components/modals/FraudAcknowledgementModal';
 import {
   fetchClaims,
   uploadDocument,
@@ -16,7 +17,11 @@ import {
   deleteDocument,
   saveOcrCorrections,
   updateClaim,
+<<<<<<< HEAD
   assessClaim
+=======
+  runFraudReview
+>>>>>>> fraud-test
 } from './services/api';
 import { buildOcrPatch } from './services/ocrAdapter';
 
@@ -72,6 +77,8 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDenyModalOpen, setIsDenyModalOpen] = useState(false);
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+  const [isAckModalOpen, setIsAckModalOpen] = useState(false);
+  const [acknowledgementNote, setAcknowledgementNote] = useState('');
   const [editingOcrField, setEditingOcrField] = useState(null);
   const [zoomedImage, setZoomedImage] = useState(null);
 
@@ -144,6 +151,59 @@ export default function App() {
   }, []);
 
   // ---------------------------------------------------------------------
+  // 3b. THE FRAUD ADVISORY
+  //
+  // This used to be a useMemo running the FR-01 engine in the browser. It is
+  // now a backend call, because the advisory's primary signal is the claimant's
+  // OTHER claims and a browser cannot query the claims collection.
+  //
+  // The trade-off that comes with that: the result is stored rather than
+  // derived, so it can go stale. handleRunFraudReview is therefore called from
+  // three places — opening a claim that has no advisory yet, and after any
+  // change to the underlying data (an OCR correction, a document upload) — so
+  // that correcting a date still moves the result the way it did when this was
+  // recomputed on every render. There is also a manual re-run on the card.
+  //
+  // Nothing here can touch the payout. This function has no setter for one, and
+  // the advisory object the server returns carries no payout field (asserted by
+  // backend/scripts/checkFraudAdvisory.js). Guardrail 4.
+  // ---------------------------------------------------------------------
+  const [isRunningFraud, setIsRunningFraud] = useState(false);
+
+  /**
+   * Runs the advisory for one claim and takes the server's copy of the claim.
+   *
+   * Deliberately swallows its own errors into the activity feed rather than
+   * alerting: an advisory that could not be computed must never interrupt the
+   * adjuster's work, because the module is advisory. The card falls back to its
+   * "not yet run" state, which says plainly that nothing has been assessed —
+   * never to a silent CLEARED.
+   */
+  const handleRunFraudReview = async (claimId) => {
+    if (!claimId) return;
+    setIsRunningFraud(true);
+    try {
+      const updatedClaim = await runFraudReview(claimId);
+      setClaimsDb(prev => ({ ...prev, [claimId]: updatedClaim }));
+
+      const advisory = updatedClaim.fraudAdvisory;
+      if (advisory) {
+        logActivity(
+          advisory.state === 'NOT_CLEARED' ? 'warning' : 'success',
+          `Fraud advisory run on ${claimId}: ${advisory.headline}`
+        );
+      }
+      return updatedClaim;
+    } catch (err) {
+      console.error(err);
+      logActivity('danger', `Could not run the fraud advisory on ${claimId}: ${err.message}`);
+      return null;
+    } finally {
+      setIsRunningFraud(false);
+    }
+  };
+
+  // ---------------------------------------------------------------------
   // 4. GUARDS — must stay below every hook above, or React throws
   //    "Rendered more hooks than during the previous render".
   // ---------------------------------------------------------------------
@@ -160,9 +220,20 @@ export default function App() {
     if (activeTab === 'All Open') return claim.status === 'In Assessment';
     if (activeTab === 'Flagged / Exceptions') return claim.status === 'In Assessment' && claim.isFlagged;
     if (activeTab === 'Clean / Straight-Through') return claim.status === 'In Assessment' && !claim.isFlagged;
+    // The advisory is its own axis, deliberately not folded into isFlagged: a
+    // claim can be perfectly covered by the policy and still be worth checking,
+    // and a flagged claim can be entirely honest. Keeping the filters separate
+    // is what stops "not covered" and "worth checking" collapsing into one
+    // bucket — guardrail 8, expressed as a tab.
+    if (activeTab === 'Fraud Advisory') {
+      return claim.status === 'In Assessment' && claim.fraudAdvisory?.state === 'NOT_CLEARED';
+    }
     if (activeTab === 'Completed') return claim.status === 'Completed' || claim.status === 'Denied';
     return true;
   });
+
+  /** The advisory for the claim currently open in the workspace, or null. */
+  const activeFraud = activeClaim.fraudAdvisory || null;
 
   // ---------------------------------------------------------------------
   // 6. HELPERS
@@ -229,6 +300,13 @@ export default function App() {
         setActiveOcrFieldId(target.ocrData[0].fieldId);
         setActiveDocId(target.ocrData[0].sourceDoc);
       }
+
+      // Run the advisory the first time a claim is opened. Not awaited — the
+      // workspace must render immediately, and the card shows its own "not yet
+      // run" state until the result arrives. A claim that already has an
+      // advisory keeps it; re-running is explicit (the ↻ on the card) or
+      // automatic after the underlying data changes.
+      if (!target.fraudAdvisory) handleRunFraudReview(id);
     }
     setCurrentScreen('detail');
   };
@@ -298,6 +376,10 @@ export default function App() {
       const updatedClaim = await saveOcrCorrections(claimId, patch);
       setClaimsDb(prev => ({ ...prev, [claimId]: updatedClaim }));
       runAiAnalysis(reason);
+      // The corrected value may change what the advisory finds — a fixed
+      // accident date is exactly what FR-01 reads. Re-run so the card cannot
+      // sit there showing a verdict on data the adjuster has already replaced.
+      handleRunFraudReview(claimId);
     } catch (err) {
       setIsAnalyzing(false);
       console.error(err);
@@ -470,6 +552,10 @@ const handleSaveLicenseFields = async (licensePayload) => {
 
       // Leaves isAnalyzing on for its own 650ms window, then clears it.
       runAiAnalysis(isReplacing ? `document replaced with ${file.name}` : `document ${file.name} uploaded`);
+
+      // A new document means new extracted values — a repair estimate total, a
+      // damage severity, a part list — all of which FR-02e and FR-03 read.
+      handleRunFraudReview(claimId);
     } catch (err) {
       setIsAnalyzing(false);
       console.error(err);
@@ -491,6 +577,19 @@ const handleSaveLicenseFields = async (licensePayload) => {
       setActiveDocId(ocrItem.sourceDoc);
       scrollToDoc(ocrItem.sourceDoc);
     }
+  };
+
+  /**
+   * "View evidence" on an integrity hit.
+   *
+   * Deliberately routed through handleSelectField — the same handler the HITL
+   * field list uses — so the evidence button scrolls the document viewer and
+   * selects the field with exactly the behaviour the adjuster already knows.
+   * No second navigation path to keep in step with the first.
+   */
+  const handleViewFraudEvidence = (hit) => {
+    if (!hit?.evidence?.fieldId) return;
+    handleSelectField({ fieldId: hit.evidence.fieldId, sourceDoc: hit.evidence.sourceDoc });
   };
 
   const openOcrModal = (field) => {
@@ -604,6 +703,11 @@ const handleSaveLicenseFields = async (licensePayload) => {
 
     closeOcrModal();
     setTimeout(() => setIsAnalyzing(false), 650);
+
+    // 6. Re-run the advisory against the corrected value. Correcting a date and
+    //    watching the advisory change is the whole point of the human-in-the-loop
+    //    design, so this must not require the adjuster to remember to refresh.
+    handleRunFraudReview(claimId);
   };
 
   // ---------------------------------------------------------------------
@@ -634,11 +738,70 @@ const handleSaveLicenseFields = async (licensePayload) => {
     }
   };
 
+  /**
+   * Builds the acknowledgement record for an approval made over an outstanding
+   * advisory, or null when there is nothing to acknowledge.
+   *
+   * The indicator codes and engine version are SNAPSHOTTED here, at the moment
+   * of approval. Re-running the advisory afterwards must not be able to rewrite
+   * what the agent was actually looking at when they signed — a compliance
+   * record that changes retroactively is not a record.
+   */
+  const buildAcknowledgement = (note) => {
+    const advisory = activeClaim.fraudAdvisory;
+    if (advisory?.state !== 'NOT_CLEARED') return null;
+
+    return {
+      acknowledgedBy: 'Ethan Jackson (Senior Claims)',   // no auth yet; see IMPLEMENTATION_NOTES.md
+      note,
+      acknowledgedAt: new Date().toISOString(),
+      advisoryState: advisory.state,
+      indicatorCodes: (advisory.indicators || []).map(item => item.code),
+      engineVersion: advisory.engineVersion
+    };
+  };
+
+  /**
+   * Approve.
+   *
+   * When an advisory is outstanding this does NOT approve — it opens the
+   * acknowledgement modal instead, once. The modal cannot refuse the approval;
+   * it only requires the agent to say why. Guardrail 3: the warning is
+   * non-blocking, and the approve button is never disabled.
+   */
   const handleDirectApprove = async () => {
+    if (activeClaim.fraudAdvisory?.state === 'NOT_CLEARED') {
+      setIsAckModalOpen(true);
+      return;
+    }
     await persistDecision(
       { status: 'Completed', approvedPayout, decisionReason: '' },
       `${selectedClaimId} approved at ₱${approvedPayout.toLocaleString()}.`
     );
+  };
+
+  /** Approve after the agent has acknowledged the advisory in writing. */
+  const handleAcknowledgeAndApprove = async () => {
+    if (!acknowledgementNote.trim()) {
+      alert('Please note for the file why you are approving despite the advisory.');
+      return;
+    }
+
+    const acknowledgement = buildAcknowledgement(acknowledgementNote);
+    const saved = await persistDecision(
+      {
+        status: 'Completed',
+        approvedPayout,
+        decisionReason: '',
+        fraudAcknowledgement: acknowledgement
+      },
+      `${selectedClaimId} approved at ₱${approvedPayout.toLocaleString()} with the fraud advisory ` +
+      `acknowledged (${acknowledgement.indicatorCodes.join(', ')}): "${acknowledgementNote}".`
+    );
+    if (!saved) return;
+
+    setIsAckModalOpen(false);
+    setAcknowledgementNote('');
   };
 
   const handleConfirmDenial = async () => {
@@ -669,6 +832,80 @@ const handleSaveLicenseFields = async (licensePayload) => {
 
     setIsModified(true);
     setIsModalOpen(false);
+  };
+
+  /**
+   * Reopens a sealed claim, returning it to In Assessment.
+   *
+   * Claims genuinely do get reopened — new evidence arrives, an appeal is filed,
+   * a decision was entered in error — so this is a real action rather than a
+   * test-only escape hatch. It was simply unreachable before: the panel replaced
+   * the decision buttons with a badge and offered no way back.
+   *
+   * IT CLEARS THE WITHDRAWN DECISION, INCLUDING THE FRAUD ACKNOWLEDGEMENT.
+   * That is a deliberate choice and it has a cost worth naming. The
+   * acknowledgement is snapshotted at approval precisely so that re-running the
+   * advisory afterwards cannot rewrite what an agent signed — and this button
+   * deletes it outright. The trade was made for demo repeatability: a claim you
+   * cannot return to a clean state is a claim you can only test once.
+   *
+   * A production version would move the withdrawn decision into a history array
+   * on the claim rather than deleting it, so the record of what was decided, by
+   * whom and over which indicators survives the reopening. Until then, the
+   * activity log below is the only trace, and it does not outlive the session.
+   */
+  const handleReopenClaim = async () => {
+    const claim = activeClaim;
+    const wasDenied = claim.status === 'Denied';
+    const acknowledgement = claim.fraudAcknowledgement;
+
+    const confirmed = window.confirm(
+      `Reopen ${claim.id}?\n\n` +
+      `The claim returns to In Assessment and the ${wasDenied ? 'denial' : 'approval'} is withdrawn. ` +
+      'The decision reason, the decision date and the approved payout are cleared' +
+      (acknowledgement?.note ? ', along with the fraud advisory acknowledgement on file' : '') +
+      '.\n\nThis cannot be undone.'
+    );
+    if (!confirmed) return;
+
+    // Log what is about to be destroyed BEFORE destroying it. Not a substitute
+    // for persisting the withdrawn decision, but better than it vanishing with
+    // no trace at all.
+    logActivity(
+      'warning',
+      `${claim.id} reopened. Withdrew the ${wasDenied ? 'denial' : 'approval'}` +
+      (claim.decisionReason ? ` ("${claim.decisionReason}")` : '') +
+      (claim.decidedAt ? `, decided ${new Date(claim.decidedAt).toLocaleString()}` : '') + '.'
+    );
+
+    if (acknowledgement?.note) {
+      logActivity(
+        'warning',
+        `Fraud advisory acknowledgement cleared from ${claim.id}: "${acknowledgement.note}" ` +
+        `(indicators ${(acknowledgement.indicatorCodes || []).join(', ') || 'none recorded'}).`
+      );
+    }
+
+    // approvedPayout is nulled rather than zeroed: openClaimDetail falls back
+    // with `approvedPayout ?? recommendedPayout ?? 0`, so null correctly means
+    // "no adjuster figure yet" and the AI's recommendation reappears. Zero would
+    // read as an adjuster having decided on nothing.
+    const saved = await persistDecision(
+      {
+        status: 'In Assessment',
+        approvedPayout: null,
+        decisionReason: '',
+        fraudAcknowledgement: null
+      },
+      `${claim.id} is back in assessment.`
+    );
+    if (!saved) return;
+
+    setApprovedPayout(claim.recommendedPayout ?? 0);
+    setIsModified(false);
+    setOverrideReason('');
+    setDenialReason('');
+    setEmailSent(false);
   };
 
   const handleSendEmail = () => {
@@ -726,10 +963,18 @@ const handleSaveLicenseFields = async (licensePayload) => {
             onSelectField: handleSelectField,
             onEditOcr: openOcrModal
           }}
+          fraud={{
+            advisory: activeFraud,
+            isRunning: isRunningFraud,
+            onRun: () => handleRunFraudReview(selectedClaimId),
+            onViewEvidence: handleViewFraudEvidence,
+            onOpenClaim: openClaimDetail
+          }}
           decision={{
             onApprove: handleDirectApprove,
             onEditPayout: () => setIsModalOpen(true),
             onDeny: () => setIsDenyModalOpen(true),
+            onReopen: handleReopenClaim,
             onSendEmail: () => setIsEmailModalOpen(true)
           }}
           runAiAnalysis={runAiAnalysis}
@@ -765,6 +1010,18 @@ const handleSaveLicenseFields = async (licensePayload) => {
         onDenialReasonChange={setDenialReason}
         onClose={() => setIsDenyModalOpen(false)}
         onConfirm={handleConfirmDenial}
+      />
+
+      {/* Shown only on Approve, and only when an advisory is outstanding.
+          Deny and Edit Payout are deliberately NOT intercepted — the agent is
+          free to act, and this records that they saw the warning. */}
+      <FraudAcknowledgementModal
+        isOpen={isAckModalOpen}
+        advisory={activeFraud}
+        note={acknowledgementNote}
+        onNoteChange={setAcknowledgementNote}
+        onClose={() => setIsAckModalOpen(false)}
+        onConfirm={handleAcknowledgeAndApprove}
       />
 
       <EditPayoutModal

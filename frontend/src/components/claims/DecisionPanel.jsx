@@ -2,6 +2,30 @@
  * Final decision bar: the payout figure plus Approve / Edit Payout / Deny.
  * Once the claim is Completed or Denied the buttons are replaced by a sealed
  * status badge and the policyholder email notification row appears.
+ *
+ *
+ * ── WHY THE FRAUD ADVISORY DOES NOT APPEAR ANYWHERE IN THIS FILE ────────────
+ * This component takes no advisory prop, has no disabled state tied to one, and
+ * has no "refer to investigation" action. That is deliberate and it is the
+ * single most important design decision in the fraud module.
+ *
+ * The advisory rests substantially on claim frequency. Frequency is a
+ * well-established trigger for investigation and equally well established as
+ * NOT being evidence of fraud — a policyholder with four legitimate claims from
+ * four separate verifiable events is a high-risk customer, not a fraudster, and
+ * nothing in a count of claims can establish intent. A module that greyed out
+ * Approve or held a payout on that basis would be asserting something its
+ * inputs cannot support, against a real person's money.
+ *
+ * So the warning is non-blocking by construction rather than by convention: the
+ * means to block simply are not passed to this component. What the module may
+ * do is ask the agent to acknowledge the advisory in writing before approving —
+ * see FraudAcknowledgementModal.jsx, which App.jsx opens instead of approving.
+ * It records the decision; it never prevents it.
+ *
+ * If a future change wants to gate approval on the advisory, that is a change
+ * to the module's claim about what it knows, not a UI tweak. Read CLAUDE.md
+ * guardrails 2 and 3 first.
  */
 export default function DecisionPanel({
   activeClaim,
@@ -10,10 +34,33 @@ export default function DecisionPanel({
   onApprove,
   onEditPayout,
   onDeny,
+  onReopen,
   onSendEmail
 }) {
   const isDenied = activeClaim.status === 'Denied';
   const isClosed = activeClaim.status === 'Completed' || isDenied;
+
+  /**
+   * Returns a sealed claim to assessment.
+   *
+   * Slate, deliberately — reopening is neither an approval nor a denial, and
+   * giving it emerald or red would put a third coloured verdict next to the two
+   * real ones. It sits beside the badge rather than replacing it, so the claim's
+   * current state stays the most prominent thing in the row.
+   *
+   * Only reachable from a sealed claim: there is no free status control here, so
+   * a claim can never go from Completed straight to Denied without passing back
+   * through assessment.
+   */
+  const reopenButton = (
+    <button
+      onClick={onReopen}
+      className="text-xs font-bold px-3 py-2 rounded-lg border border-slate-300 bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800 transition"
+      title="Withdraw this decision and return the claim to assessment"
+    >
+      ↺ Reopen
+    </button>
+  );
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-3">
@@ -52,12 +99,14 @@ export default function DecisionPanel({
               <span className="text-xs text-red-700 font-bold bg-red-50 px-3 py-2 rounded-lg border border-red-200">
                 ✕ Claim Denied & Sealed
               </span>
+              {reopenButton}
             </div>
           ) : (
             <div className="flex items-center space-x-2">
               <span className="text-xs text-emerald-700 font-bold bg-emerald-50 px-3 py-2 rounded-lg border border-emerald-200">
                 ✓ Claim Approved & Signed
               </span>
+              {reopenButton}
             </div>
           )}
         </div>
